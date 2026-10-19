@@ -48,16 +48,21 @@ static void syncTime() {
     configTzTime(TZ_RULE, "pool.ntp.org", "time.nist.gov");
     start = millis();
     while (time(nullptr) < 1700000000 && millis() - start < 6000) delay(100);
+    haveTime = time(nullptr) >= 1700000000;   // verified only when NTP answered
   }
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
 #endif
-  haveTime = time(nullptr) >= 1700000000;
   if (!haveTime) {
-    // No NTP: resume from the last saved time (the clock is UNVERIFIED).
+    // No NTP: the clock is UNVERIFIED. The RTC timer survives a soft reset (but
+    // not a power cycle), so keep it when it is plausible, else resume from the
+    // last saved time. Take the later of the two so a fast-forward sticks.
+    uint32_t rtc = (uint32_t)time(nullptr);
     uint32_t last = prefs.getUInt("lastEpoch", 1792447200u);
-    struct timeval tv = {(time_t)last, 0};
-    settimeofday(&tv, nullptr);
+    if (rtc < 1700000000u || rtc < last) {
+      struct timeval tv = {(time_t)last, 0};
+      settimeofday(&tv, nullptr);
+    }
   }
 }
 
@@ -130,8 +135,14 @@ static void handle(char c) {
     save();
     return;
   }
+  // A "session" is a screen wake in the real UI, so keys within 5 min of each
+  // other count as one. Otherwise every key would cost exposure (Mystique).
+  static uint32_t lastCareUnix = 0;
   bool care = c != 's' && c != '?' && c != 'w' && c != 'W' && c != 'd';
-  if (care) pet.beginSession(now);
+  if (care) {
+    if (lastCareUnix == 0 || now - lastCareUnix > 300) pet.beginSession(now);
+    lastCareUnix = now;
+  }
   switch (c) {
     case 'f': r = pet.feed(now, Food::STAPLE); break;
     case 't': r = pet.feed(now, Food::TREAT); break;
@@ -169,22 +180,29 @@ static void drainEvents() {
                                 "hiker got a photo", "dizzy", "missed walk", "went to sleep",
                                 "woke at dusk", "restless: something out there is calling", "made a mess"};
   Event e;
+  bool any = false;
   while (pet.nextEvent(e)) {
+    any = true;
     Serial.printf("** %s", names[(int)e.kind]);
     if (e.kind == EventKind::EVOLVED || e.kind == EventKind::HATCHED) Serial.printf(" -> %s", formName((Form)e.a));
     if (e.kind == EventKind::EVIDENCE) Serial.printf(" item %u tier %u", e.a, e.b);
     Serial.println();
   }
+  if (any) save();   // a hatch or evolution from a background tick must not wait for the 10 min save
 }
 
 void setup() {
+  Serial.setTxBufferSize(1024);   // USB CDC default is 256 bytes and drops on overflow
   Serial.begin(115200);
+  // USB CDC: give the host up to 3 s to open the port so the banner is not lost.
+  uint32_t t0 = millis();
+  while (!Serial && millis() - t0 < 3000) delay(10);
   delay(300);
   prefs.begin("cryptlings", false);
   syncTime();
   uint32_t now = nowUnix();
   uint8_t buf[sizeof(State)];
-  size_t n = prefs.getBytes("pet", buf, sizeof(buf));
+  size_t n = prefs.isKey("pet") ? prefs.getBytes("pet", buf, sizeof(buf)) : 0;
   if (n == sizeof(State) && pet.load(buf, n)) {
     pet.state().utcOffsetSec = utcOffset(now);
     pet.catchUp(now);
