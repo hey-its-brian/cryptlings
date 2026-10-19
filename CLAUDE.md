@@ -46,7 +46,7 @@ platformio.ini              pioarduino platform (Arduino core 3.x, needed for th
 - Firmware: `pio run -t upload && pio device monitor`. For NTP add to build_flags: `-DWIFI_SSID=\"name\" -DWIFI_PASS=\"pass\"`. Time zone defaults to America/New_York (`TZ_RULE`).
 - Everything is played on the touch screen. Serial console (debug only): `s` status, `w`/`W` fast-forward an hour/day, `S` save, `?` help.
 
-## Status: playable device firmware (all phases through P6 core), not yet flashed with the UI
+## Status: v1.0.0 released, playable on the device (all phases through P6 core)
 
 P1 engine: done, validated on host and on the board (serial console). Code review fixes applied, regression tests in host_test.
 
@@ -59,8 +59,10 @@ UI firmware (written 2026-10-19, builds with pioarduino 55.03.312 / Arduino core
 - Art: the mockup's SVG chibis rasterized to 16-color sprites (4 species x 6 forms x 5 moods), 16 scene backgrounds, icons. Fonts baked 4bpp. HOAX reuses the Legend art with a zipper.
 - A second fresh-eyes review found 13 issues (collection lost after release + reboot, hand-set clock skipping catch-up, hiker HIDE on cooldown, screen timeout gaps, result card dismissed by the ending tap, holding the egg, deferred hiker/reveal overlays, reveal dismissed early, stale scroll, owner-set clock flag, LEDC timer sharing, settings size migration); all fixed, the two serious ones have sim regression checks.
 
+Flashed and played on the board 2026-10-19: display, touch, buzzer, battery and sleep all work. Public repo github.com/hey-its-brian/cryptlings, release v1.0.0 (full image for 0x0, app image for 0x10000, player's guide).
+
 Not done / next:
-- First flash and hardware shake-down: display colors and offset, touch mapping, buzzer level, battery reading, frame rate (try `-DLCD_SPI_HZ=80000000`).
+- Frame rate: try `-DLCD_SPI_HZ=80000000` (Waveshare's IDF demo runs 80 MHz).
 - Not built: real-step walks from the IMU, Witness Sense, custom name keyboard, SD card. The power LED (LED2 via R19) is hardwired; only removing R19 turns it off.
 - Brief's tuning numbers changed during balancing (see below); update the brief if they stick.
 
