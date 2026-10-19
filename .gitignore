@@ -2,3 +2,4 @@
 build/
 .vscode/
 tools/art/out/
+.DS_Store
