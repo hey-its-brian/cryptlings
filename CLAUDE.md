@@ -19,30 +19,50 @@ Full plan and brief live in the owner's Obsidian vault at `01 Projects/CRYPTLING
 
 ## Hardware
 
-Waveshare ESP32-C6-Touch-LCD-1.47: 172 x 320 IPS (JD9853, SPI), AXS5106L capacitive touch (I2C, single touch), ESP32-C6 RISC-V 160MHz, 512KB SRAM, NO PSRAM, 8MB flash, microSD, LiPo via battery module, passive buzzer. IMU depends on the board variant, feature-detect it (it enables real steps for the Nightcrawler's walk). No RTC: NTP on boot when WiFi creds exist, else last saved time, flagged UNVERIFIED.
+Waveshare ESP32-C6-Touch-LCD-1.47: 172 x 320 IPS (JD9853, SPI), AXS5106L capacitive touch (I2C 0x63, single touch), ESP32-C6 RISC-V 160MHz, 512KB SRAM, NO PSRAM, 8MB flash, microSD (unused), LiPo via battery module (ADC on GPIO0), QMI8658A IMU always present (unused so far). The board has NO buzzer: an external passive buzzer goes on GPIO7. No RTC: NTP on boot when WiFi creds exist, else last saved time, flagged UNVERIFIED (settable on the MORE tab). Pins, init table and touch protocol: docs/HARDWARE.md.
 
 ## Layout
 
 ```
 include/cryptlings_core.h   engine API, Tuning (every number TUNABLE), POD State
 src/cryptlings_core.cpp     engine
-src/main.cpp                P1 firmware: serial console driving the engine, NVS save
-host_test/test_host.cpp     host tests + balance matrix (not built by PlatformIO)
-host.mk                     host build: make -f host.mk test (rename to Makefile if you like)
+src/app/                    portable UI: gfx renderer, every screen, minigames, sound cues
+src/assets/                 generated: fonts.h (4bpp fonts), art.h (16-color sprites, scenes, icons)
+src/hal/board.*             display, touch, backlight, buzzer, battery, BOOT button
+src/main.cpp                firmware: wires the app to the board, NVS, clock, debug console
+sim/sim_main.cpp            desktop simulator with scripted touches, writes screenshots
+host_test/test_host.cpp     engine tests + balance matrix
+tools/                      bake_fonts.py, art/render.js + bake_sprites.py (regenerate assets)
+host.mk                     host builds: test, trace, sim
+docs/HARDWARE.md            pins, init table, touch protocol, buzzer wiring, sources
 platformio.ini              pioarduino platform (Arduino core 3.x, needed for the C6)
 ```
 
 ## Build
 
-- Host tests: `make -f host.mk test` (verbose stat trace: `make -f host.mk trace`). Requires g++ or clang++ with C++17.
+- Host tests: `make -f host.mk test` (verbose stat trace: `make -f host.mk trace`). Requires g++ with C++17.
+- Simulator: `make -f host.mk sim` writes about 60 screenshots of every screen and flow to `build/shots/` (PPM). Use it to check UI changes before flashing.
+- Regenerate art: `node tools/art/render.js` (needs Playwright + Chromium) then `python3 tools/bake_sprites.py`. Fonts: `python3 tools/bake_fonts.py` (needs Pillow).
 - Firmware: `pio run -t upload && pio device monitor`. For NTP add to build_flags: `-DWIFI_SSID=\"name\" -DWIFI_PASS=\"pass\"`. Time zone defaults to America/New_York (`TZ_RULE`).
-- Serial console keys: `?` help, `!` then `1..4` new egg (replaces the pet), `R` release an adult, `f` feed, `t` treat, `p` pat, `c` cuddle, `n`/`g` play, `h` hide, `x` clean, `l` lights, `w`/`W` fast-forward an hour/day, `s` status.
+- Everything is played on the touch screen. Serial console (debug only): `s` status, `w`/`W` fast-forward an hour/day, `S` save, `?` help.
 
-## Status: P1 (core engine) done, validated on host
+## Status: playable device firmware (all phases through P6 core), not yet flashed with the UI
 
-What the engine covers: five stats (Belly, Cheer, Rest, Mystique, Tidy), nocturnal schedule with dawn tuck-in and owner quiet hours (23:00 to 07:00, halved decay), day-wake penalty, exposure and Mystique, all care actions with cooldowns, the four species quirks (Mothman lamp and dizziness, Bigfoot hikers and foraging, Nessie loch level, Nightcrawler walks and pants), lifecycle with real moon phase and full-moon early evolution, the LEGEND / BLURRY / HOAX fork from running aggregates, evidence rolls with five folklore tiers and corroboration counts kept across pets, 72h capped catch-up at half decay with a floor of 10, hibernation and dig-out, release, and crc-checked persistence. A fresh-eyes code review found 10 issues (mostly time math: forward-only night rollover, clock set back, hibernation not aging the pet, catch-up floor vs nightly penalties, DST in the console, tuck-in window, evidence grinding caps, hiker alert timing, console safety); all are fixed, and the engine-side ones (rollover, clock-back, hibernation age, catch-up floor, tuck-in, evidence caps) have regression tests.
+P1 engine: done, validated on host and on the board (serial console). Code review fixes applied, regression tests in host_test.
 
-Console keys `!` then `1..4` start a new egg (replaces the pet), `R` releases an adult. main.cpp passes a syntax check against stub Arduino headers but has NOT been compiled with the real toolchain or run on the board yet. First thing on hardware: `pio run`, fix any core 3.x API drift, then raise a pet over serial.
+UI firmware (written 2026-10-19, builds with pioarduino 55.03.312 / Arduino core 3.3.12: RAM 42%, flash 29%):
+- Screens: boot case-file typewriter, specimen tray (4 eggs, swipe or arrows, hold to incubate), name picker, DEN (polaroid scene per species with real moon phase, fog, fireflies, day/night, five stat pips, hint line, best-action + CARE buttons), CARE list (species rows: lamp, forage, loch, walk, pants), FILE (bio, quirk, photo record, evidence with tiers and corroboration, release), MORE (almanac, sound, brightness, screen timeout, set clock, start over).
+- Overlays: hatch/evolution polaroid develop + stamp, fork card (care, hidden, rough nights), Bigfoot hiker alert with 10 s HIDE, burrow dig-out, pants picker, clock setter, start-over confirm, farewell.
+- Four 20 s minigames: Lamplight Waltz (drag), Forage (tap), Loch Hop (tap), Evening Stroll (alternate taps, also the walk).
+- Sound motifs per Brief B10 on an external buzzer (GPIO7), quiet hours, 6 unattended sounds a day, need hoot at most every 45 min.
+- Screen sleeps after the chosen timeout; touch or BOOT wakes it. Saves on events, every 10 min and on screen off.
+- Art: the mockup's SVG chibis rasterized to 16-color sprites (4 species x 6 forms x 5 moods), 16 scene backgrounds, icons. Fonts baked 4bpp. HOAX reuses the Legend art with a zipper.
+- A second fresh-eyes review found 13 issues (collection lost after release + reboot, hand-set clock skipping catch-up, hiker HIDE on cooldown, screen timeout gaps, result card dismissed by the ending tap, holding the egg, deferred hiker/reveal overlays, reveal dismissed early, stale scroll, owner-set clock flag, LEDC timer sharing, settings size migration); all fixed, the two serious ones have sim regression checks.
+
+Not done / next:
+- First flash and hardware shake-down: display colors and offset, touch mapping, buzzer level, battery reading, frame rate (try `-DLCD_SPI_HZ=80000000`).
+- Not built: real-step walks from the IMU, Witness Sense, deep sleep (the screen turns off but the chip keeps running; battery life is hours, not days), custom name keyboard, SD card.
+- Brief's tuning numbers changed during balancing (see below); update the brief if they stick.
 
 ### Balance results (host, 20 simulated days, `make -f host.mk test`)
 

@@ -1,14 +1,19 @@
-// CRYPTLINGS P1 firmware: the core engine on the board, driven over serial.
-// No display yet (that is P3). Use the serial monitor to raise a pet headless
-// and feel out the tuning on real hardware and real time.
+// CRYPTLINGS firmware: the full touch UI on the Waveshare ESP32-C6-Touch-LCD-1.47.
 //
-// Commands (115200 baud): see printHelp().
+// The app (src/app) is portable and also runs in the desktop simulator; this
+// file wires it to the board: display, touch, buzzer, backlight, battery,
+// NVS storage and the clock. A small serial console stays for debugging.
 #include <Arduino.h>
 #include <Preferences.h>
 #include <WiFi.h>
 #include <time.h>
 
+#include <cstring>
+
+#include "app/app.h"
+#include "app/gfx.h"
 #include "cryptlings_core.h"
+#include "hal/board.h"
 
 using namespace cryptlings;
 
@@ -16,18 +21,17 @@ using namespace cryptlings;
 #define TZ_RULE "EST5EDT,M3.2.0,M11.1.0"   // America/New_York
 #endif
 
-static Pet pet;
+static gfx::Color FB[gfx::W * gfx::H];      // 110 KB frame buffer, pushed whole
+static gfx::Canvas canvas(FB);
 static Preferences prefs;
-static uint32_t simOffset = 0;              // fast-forward for testing ('w' command)
-static uint32_t lastSave = 0;
+static uint32_t simOffset = 0;              // console fast-forward ('w' / 'W')
 static bool haveTime = false;
+static bool ownerSetClock = false;          // set by hand this power-up (MORE tab)
 
-static uint32_t nowUnix() {
-  time_t t = time(nullptr);
-  return (uint32_t)t + simOffset;
-}
+// ---- time ---------------------------------------------------------------------
+static uint32_t nowUnix() { return (uint32_t)time(nullptr) + simOffset; }
 
-static int32_t utcOffset(uint32_t now) {
+static int32_t utcOffsetAt(uint32_t now) {
   time_t t = (time_t)now;
   struct tm lt, gt;
   localtime_r(&t, &lt);
@@ -55,8 +59,8 @@ static void syncTime() {
 #endif
   if (!haveTime) {
     // No NTP: the clock is UNVERIFIED. The RTC timer survives a soft reset (but
-    // not a power cycle), so keep it when it is plausible, else resume from the
-    // last saved time. Take the later of the two so a fast-forward sticks.
+    // not a power cycle), so keep it when plausible, else resume from the last
+    // saved time. The player can also set it on the MORE tab.
     uint32_t rtc = (uint32_t)time(nullptr);
     uint32_t last = prefs.getUInt("lastEpoch", 1792447200u);
     if (rtc < 1700000000u || rtc < last) {
@@ -66,164 +70,133 @@ static void syncTime() {
   }
 }
 
-static void save() {
-  uint8_t buf[sizeof(State)];
-  size_t n = pet.serialize(buf, sizeof(buf));
-  prefs.putBytes("pet", buf, n);
-  prefs.putUInt("lastEpoch", nowUnix());
-  lastSave = millis();
-}
+// ---- platform for the app -----------------------------------------------------
+struct BoardPlatform : Platform {
+  uint32_t unixNow() override { return nowUnix(); }
+  int32_t utcOffset(uint32_t now) override { return utcOffsetAt(now); }
+  bool clockVerified() override { return haveTime || ownerSetClock; }
+  void setClock(uint32_t unix) override {
+    struct timeval tv = {(time_t)(unix - simOffset), 0};
+    settimeofday(&tv, nullptr);
+    prefs.putUInt("lastEpoch", unix);
+    ownerSetClock = true;
+  }
+  void play(const Note* notes, int n) override {
+    uint16_t hz[16], ms[16];
+    if (n > 16) n = 16;
+    for (int i = 0; i < n; ++i) { hz[i] = notes[i].hz; ms[i] = notes[i].ms; }
+    board::buzzerQueue(hz, ms, n);
+  }
+  void backlight(uint8_t level) override { board::backlight(level); }
+  int batteryPercent() override {
+    static int cached = -2;
+    static uint32_t at = 0;
+    if (cached == -2 || millis() - at > 30000) { cached = board::batteryPercent(); at = millis(); }
+    return cached;
+  }
+  void savePet(const uint8_t* data, size_t len) override {
+    prefs.putBytes("pet", data, len);
+    prefs.putUInt("lastEpoch", nowUnix());
+  }
+  void saveSettings(const Settings& s) override { prefs.putBytes("set", &s, sizeof(s)); }
+};
 
+static BoardPlatform platform;
+static App app(platform, canvas);
+
+// ---- serial console (debug) ----------------------------------------------------
 static void printStatus() {
-  const State& s = pet.state();
+  const State& s = app.pet().state();
   uint32_t now = nowUnix();
-  Serial.printf("\n%s  %s  local %.2fh  %s%s%s\n", speciesName((Species)s.species),
-                formName((Form)s.form), pet.localHour(now), pet.awake(now) ? "awake" : "asleep",
-                pet.inQuiet(now) ? " (quiet hours)" : "", s.hibernating ? " HIBERNATING" : "");
-  Serial.printf("belly %3.0f  cheer %3.0f  rest %3.0f  myst %3.0f  tidy %3.0f", s.stat[0], s.stat[1],
-                s.stat[2], s.stat[3], s.stat[4]);
-  if ((Species)s.species == Species::NESSIE) Serial.printf("  loch %3.0f", s.loch);
-  Serial.printf("\nfork score %.1f -> %s   moon %.2f   treats left %u   clock %s\n",
-                pet.forkScore(now), formName(pet.forkPreview(now)), Pet::moonPhase(now), s.treatsLeft,
-                haveTime ? "NTP" : "UNVERIFIED");
+  Serial.printf("\n%s  %s  local %.2fh  %s%s  clock %s\n", speciesName((Species)s.species),
+                formName((Form)s.form), app.pet().localHour(now), app.pet().awake(now) ? "awake" : "asleep",
+                s.hibernating ? " HIBERNATING" : "", haveTime ? "NTP" : "UNVERIFIED");
+  Serial.printf("belly %3.0f  cheer %3.0f  rest %3.0f  myst %3.0f  tidy %3.0f  loch %3.0f\n", s.stat[0], s.stat[1],
+                s.stat[2], s.stat[3], s.stat[4], s.loch);
+  Serial.printf("fork score %.1f -> %s   moon %.2f   battery %d%%\n", app.pet().forkScore(now),
+                formName(app.pet().forkPreview(now)), Pet::moonPhase(now), board::batteryPercent());
 }
 
-static void printHelp() {
-  Serial.println(F("\nCRYPTLINGS P1 serial console"));
-  Serial.println(F(" new egg: ! then 1 mothman  2 bigfoot  3 nessie  4 nightcrawler   R release adult"));
-  Serial.println(F(" care: f feed  t treat  r forage  p pat  c cuddle  n play  g play(great)"));
-  Serial.println(F("       h hide  x clean  b scrub  l lights  m lamp on  M lamp off"));
-  Serial.println(F("       k loch top-up  a walk  y dodge hiker  Y miss hiker"));
-  Serial.println(F("       pants: q corduroy  e pinstripe  u pajama  i cargo"));
-  Serial.println(F(" misc: s status  w +1 hour  W +1 day  d dig out  ? help"));
-}
-
-static const char* resultName(Result r) {
-  switch (r) {
-    case Result::OK: return "ok";
-    case Result::WOKE_IT: return "ok (woke it up)";
-    case Result::COOLDOWN: return "too soon";
-    case Result::NOT_NOW: return "not now";
-    case Result::HIBERNATING: return "hibernating, dig it out (d)";
-  }
-  return "?";
-}
-
-static bool armedNew = false;   // '!' then 1..4 starts a new egg
-
-static void handle(char c) {
-  if (c == '\r' || c == '\n' || c == ' ' || c == '\t') return;
-  uint32_t now = nowUnix();
-  pet.state().utcOffsetSec = utcOffset(now);
-  Result r = Result::OK;
-  bool acted = true;
-  if (c == '!') { armedNew = true; Serial.println(F("New egg: press 1..4 (this replaces the current pet)")); return; }
-  if (armedNew) {
-    armedNew = false;
-    if (c >= '1' && c <= '4') {
-      bool first = pet.state().raisedMask == 0;
-      pet.spawnEgg((Species)(c - '1'), now, utcOffset(now), first);
-      Serial.printf("New egg: %s\n", speciesName((Species)(c - '1')));
-      save();
-    }
-    return;
-  }
-  if (c == 'R') {
-    Form f = pet.release(now);
-    if (f == Form::EGG) { Serial.println(F("Only adults can be released.")); return; }
-    Serial.printf("Released into the fog as %s. Case closed. Press ! then 1..4 for a new egg.\n", formName(f));
-    save();
-    return;
-  }
-  // A "session" is a screen wake in the real UI, so keys within 5 min of each
-  // other count as one. Otherwise every key would cost exposure (Mystique).
-  static uint32_t lastCareUnix = 0;
-  bool care = c != 's' && c != '?' && c != 'w' && c != 'W' && c != 'd';
-  if (care) {
-    if (lastCareUnix == 0 || now - lastCareUnix > 300) pet.beginSession(now);
-    lastCareUnix = now;
-  }
+static void console(char c) {
   switch (c) {
-    case 'f': r = pet.feed(now, Food::STAPLE); break;
-    case 't': r = pet.feed(now, Food::TREAT); break;
-    case 'r': r = pet.feed(now, Food::FORAGE); break;
-    case 'p': r = pet.pat(now); break;
-    case 'c': r = pet.cuddle(now); break;
-    case 'n': r = pet.play(now, false); break;
-    case 'g': r = pet.play(now, true); break;
-    case 'h': r = pet.hide(now); break;
-    case 'x': r = pet.clean(now); break;
-    case 'b': r = pet.scrub(now); break;
-    case 'l': r = pet.lights(now); break;
-    case 'm': r = pet.setLamp(now, true); break;
-    case 'M': r = pet.setLamp(now, false); break;
-    case 'k': r = pet.topUpLoch(now); break;
-    case 'a': r = pet.walk(now); break;
-    case 'y': r = pet.resolveHiker(now, true); break;
-    case 'Y': r = pet.resolveHiker(now, false); break;
-    case 'd': pet.digOut(now); break;
-    case 'w': simOffset += 3600; pet.tick(nowUnix()); break;
-    case 'W': simOffset += 86400; pet.tick(nowUnix()); break;
-    case 's': acted = false; printStatus(); break;
-    case '?': acted = false; printHelp(); break;
-    case 'q': r = pet.wearPants(now, 0); break;
-    case 'e': r = pet.wearPants(now, 1); break;
-    case 'u': r = pet.wearPants(now, 2); break;
-    case 'i': r = pet.wearPants(now, 3); break;
-    default: return;
+    case 's': printStatus(); break;
+    case 'w': simOffset += 3600; Serial.println("+1 hour"); break;
+    case 'W': simOffset += 86400; Serial.println("+1 day"); break;
+    case 'S': app.forceSave(); Serial.println("saved"); break;
+    case '?':
+      Serial.println(F("CRYPTLINGS console: s status, w +1 hour, W +1 day, S save. Everything else is on the touch screen."));
+      break;
+    default: break;
   }
-  if (acted) { Serial.printf("[%c] %s\n", c, resultName(r)); printStatus(); save(); }
 }
 
-static void drainEvents() {
-  static const char* names[] = {"", "HATCHED", "EVOLVED", "EVIDENCE", "HIKER! (y hide / Y too late)",
-                                "hiker got a photo", "dizzy", "missed walk", "went to sleep",
-                                "woke at dusk", "restless: something out there is calling", "made a mess"};
-  Event e;
-  bool any = false;
-  while (pet.nextEvent(e)) {
-    any = true;
-    Serial.printf("** %s", names[(int)e.kind]);
-    if (e.kind == EventKind::EVOLVED || e.kind == EventKind::HATCHED) Serial.printf(" -> %s", formName((Form)e.a));
-    if (e.kind == EventKind::EVIDENCE) Serial.printf(" item %u tier %u", e.a, e.b);
-    Serial.println();
-  }
-  if (any) save();   // a hatch or evolution from a background tick must not wait for the 10 min save
-}
-
+// ---- setup / loop -----------------------------------------------------------------
 void setup() {
-  Serial.setTxBufferSize(1024);   // USB CDC default is 256 bytes and drops on overflow
+  Serial.setTxBufferSize(1024);
   Serial.begin(115200);
-  // USB CDC: give the host up to 3 s to open the port so the banner is not lost.
   uint32_t t0 = millis();
-  while (!Serial && millis() - t0 < 3000) delay(10);
-  delay(300);
+  while (!Serial && millis() - t0 < 1500) delay(10);
+
+  pinMode(board::PIN_BOOT, INPUT_PULLUP);
+  board::displayBegin();
+  canvas.fill(gfx::hex(0x0B0D12));
+  board::displayPush(FB);
+  board::backlight(150);
+  bool touch = board::touchBegin();
+  board::buzzerBegin();
+
   prefs.begin("cryptlings", false);
   syncTime();
-  uint32_t now = nowUnix();
-  uint8_t buf[sizeof(State)];
-  size_t n = prefs.isKey("pet") ? prefs.getBytes("pet", buf, sizeof(buf)) : 0;
-  if (n == sizeof(State) && pet.load(buf, n)) {
-    pet.state().utcOffsetSec = utcOffset(now);
-    pet.catchUp(now);
-    Serial.println(F("Pet restored, catch-up applied."));
-  } else {
-    pet.spawnEgg(Species::MOTHMAN, now, utcOffset(now), true);
-    Serial.println(F("No saved pet. Started a Mothman egg (press ! then 1..4 to choose)."));
+
+  uint8_t petBuf[sizeof(State)];
+  size_t petLen = prefs.isKey("pet") ? prefs.getBytes("pet", petBuf, sizeof(petBuf)) : 0;
+  // Settings: read whatever size was stored (older builds may differ) into a
+  // zeroed struct, then trust it only if the magic matches.
+  Settings set{};
+  std::memset(&set, 0, sizeof(set));
+  bool haveSet = false;
+  if (prefs.isKey("set")) {
+    size_t len = prefs.getBytesLength("set");
+    if (len > 0 && len <= sizeof(set)) {
+      prefs.getBytes("set", &set, len);
+      haveSet = set.magic == SETTINGS_MAGIC;
+    }
   }
-  printHelp();
-  printStatus();
+  set.name[sizeof(set.name) - 1] = 0;
+  if (!haveSet && petLen == sizeof(State)) {
+    // A pet raised with the P1 serial console: adopt it.
+    std::memset(&set, 0, sizeof(set));
+    set.magic = SETTINGS_MAGIC;
+    set.version = 1;
+    set.brightness = 1;
+    set.timeout = 1;
+    set.hasPet = 1;
+    set.caseNo = 417;
+    std::strcpy(set.name, "Specimen");
+    haveSet = true;
+  }
+  app.begin(millis(), petLen ? petBuf : nullptr, petLen, haveSet ? &set : nullptr);
+  Serial.printf("CRYPTLINGS up. touch %s, clock %s, free heap %u\n", touch ? "ok" : "NOT FOUND",
+                haveTime ? "NTP" : "UNVERIFIED", (unsigned)ESP.getFreeHeap());
 }
 
 void loop() {
-  static uint32_t lastTick = 0;
-  while (Serial.available()) handle((char)Serial.read());
-  if (millis() - lastTick > 5000) {
-    lastTick = millis();
-    uint32_t now = nowUnix();
-    pet.state().utcOffsetSec = utcOffset(now);   // follow DST changes
-    pet.tick(now);
-    drainEvents();
+  while (Serial.available()) console((char)Serial.read());
+
+  TouchIn t{false, 0, 0};
+  int x, y;
+  if (board::touchRead(x, y)) { t.down = true; t.x = x; t.y = y; }
+
+  // BOOT button: a press while the screen is off wakes it (same as a touch).
+  static bool bootWas = false;
+  bool boot = board::bootPressed();
+  if (boot && !bootWas && !app.screenOn()) { t.down = true; t.x = 2; t.y = 2; }
+  bootWas = boot;
+
+  if (app.update(millis(), t)) {
+    app.render();
+    board::displayPush(FB);
   }
-  if (millis() - lastSave > 10UL * 60UL * 1000UL) save();
+  board::buzzerService();
+  delay(app.screenOn() ? 10 : 120);   // poll slower with the screen off to save power
 }
