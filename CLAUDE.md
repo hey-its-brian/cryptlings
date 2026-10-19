@@ -28,23 +28,23 @@ include/cryptlings_core.h   engine API, Tuning (every number TUNABLE), POD State
 src/cryptlings_core.cpp     engine
 src/main.cpp                P1 firmware: serial console driving the engine, NVS save
 host_test/test_host.cpp     host tests + balance matrix (not built by PlatformIO)
-host.mk                     host build: make -f host.mk test, make -f host.mk trace
+host.mk                     host build: make -f host.mk test (rename to Makefile if you like)
 platformio.ini              pioarduino platform (Arduino core 3.x, needed for the C6)
 ```
 
 ## Build
 
-- Host tests: `make -f host.mk test` (verbose stat trace: `make -f host.mk trace`). Requires g++ with C++17.
+- Host tests: `make -f host.mk test` (verbose stat trace: `make -f host.mk trace`). Requires g++ or clang++ with C++17.
 - Firmware: `pio run -t upload && pio device monitor`. For NTP add to build_flags: `-DWIFI_SSID=\"name\" -DWIFI_PASS=\"pass\"`. Time zone defaults to America/New_York (`TZ_RULE`).
 - Serial console keys: `?` help, `!` then `1..4` new egg (replaces the pet), `R` release an adult, `f` feed, `t` treat, `p` pat, `c` cuddle, `n`/`g` play, `h` hide, `x` clean, `l` lights, `w`/`W` fast-forward an hour/day, `s` status.
 
 ## Status: P1 (core engine) done, validated on host
 
-What the engine covers: five stats (Belly, Cheer, Rest, Mystique, Tidy), nocturnal schedule with dawn tuck-in and owner quiet hours (23:00 to 07:00, halved decay), day-wake penalty, exposure and Mystique, all care actions with cooldowns, the four species quirks (Mothman lamp and dizziness, Bigfoot hikers and foraging, Nessie loch level, Nightcrawler walks and pants), lifecycle with real moon phase and full-moon early evolution, the LEGEND / BLURRY / HOAX fork from running aggregates, evidence rolls with five folklore tiers and corroboration counts kept across pets, 72h capped catch-up at half decay with a floor of 10, hibernation and dig-out, release, and crc-checked persistence (State is 244 bytes).
+What the engine covers: five stats (Belly, Cheer, Rest, Mystique, Tidy), nocturnal schedule with dawn tuck-in and owner quiet hours (23:00 to 07:00, halved decay), day-wake penalty, exposure and Mystique, all care actions with cooldowns, the four species quirks (Mothman lamp and dizziness, Bigfoot hikers and foraging, Nessie loch level, Nightcrawler walks and pants), lifecycle with real moon phase and full-moon early evolution, the LEGEND / BLURRY / HOAX fork from running aggregates, evidence rolls with five folklore tiers and corroboration counts kept across pets, 72h capped catch-up at half decay with a floor of 10, hibernation and dig-out, release, and crc-checked persistence. A fresh-eyes code review found 10 issues (mostly time math: forward-only night rollover, clock set back, hibernation not aging the pet, catch-up floor vs nightly penalties, DST in the console, tuck-in window, evidence grinding caps, hiker alert timing, console safety); all are fixed, and the engine-side ones (rollover, clock-back, hibernation age, catch-up floor, tuck-in, evidence caps) have regression tests.
 
-The P1 firmware builds with pioarduino (Arduino core 3.3.x) and runs on the board over its USB Serial/JTAG port (`-DARDUINO_USB_MODE=1 -DARDUINO_USB_CDC_ON_BOOT=1`, 8MB partition table). Verified on hardware: help, new egg, first hatch at 10 min, care actions, hourly and daily fast-forward, NVS restore with catch-up after reset, a live evolution in the evening window. Without WiFi the clock is UNVERIFIED and resumes from the RTC or the last saved epoch, whichever is later. The console treats keys within 5 min as one session (exposure) and saves on every engine event, not only on actions.
+Console keys `!` then `1..4` start a new egg (replaces the pet), `R` releases an adult. main.cpp passes a syntax check against stub Arduino headers but has NOT been compiled with the real toolchain or run on the board yet. First thing on hardware: `pio run`, fix any core 3.x API drift, then raise a pet over serial.
 
-### Balance results (host, 20 simulated days, `make test`)
+### Balance results (host, 20 simulated days, `make -f host.mk test`)
 
 | Keeper | What they do | Outcome |
 |---|---|---|
