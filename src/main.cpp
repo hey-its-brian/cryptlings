@@ -27,6 +27,8 @@ static Preferences prefs;
 static uint32_t simOffset = 0;              // console fast-forward ('w' / 'W')
 static bool haveTime = false;
 static bool ownerSetClock = false;          // set by hand this power-up (MORE tab)
+static int battCache = -2;                  // battery %: read once a minute while awake only
+static uint32_t battAt = 0;
 
 // ---- time ---------------------------------------------------------------------
 static uint32_t nowUnix() { return (uint32_t)time(nullptr) + simOffset; }
@@ -89,10 +91,8 @@ struct BoardPlatform : Platform {
   }
   void backlight(uint8_t level) override { board::backlight(level); }
   int batteryPercent() override {
-    static int cached = -2;
-    static uint32_t at = 0;
-    if (cached == -2 || millis() - at > 30000) { cached = board::batteryPercent(); at = millis(); }
-    return cached;
+    if (battCache == -2) { battCache = board::batteryPercent(); battAt = millis(); }
+    return battCache;
   }
   void savePet(const uint8_t* data, size_t len) override {
     prefs.putBytes("pet", data, len);
@@ -131,7 +131,26 @@ static void console(char c) {
 }
 
 // ---- setup / loop -----------------------------------------------------------------
+// ---- power button ---------------------------------------------------------------
+static const uint32_t HOLD_SHOW_MS = 800;   // after this, the "keep holding" card appears
+static const uint32_t HOLD_OFF_MS = 3000;   // soft power off
+static bool displayOn = true;
+static bool touchOn = true;
+
+static void softPowerOff() {
+  Serial.println(F("Soft power off: saved. Press the button to wake."));
+  app.setPowerHold(0);
+  app.renderPowerOff();                     // saves pet + settings, draws the card
+  if (!displayOn) { board::displayWake(); displayOn = true; }
+  board::displayPush(FB);
+  board::backlight(120);
+  delay(1500);
+  Serial.flush();
+  board::powerOff();                        // does not return
+}
+
 void setup() {
+  board::releaseHolds();
   Serial.setTxBufferSize(1024);
   Serial.begin(115200);
   uint32_t t0 = millis();
@@ -143,6 +162,7 @@ void setup() {
   board::displayPush(FB);
   board::backlight(150);
   bool touch = board::touchBegin();
+  board::imuOff();
   board::buzzerBegin();
 
   prefs.begin("cryptlings", false);
@@ -176,27 +196,79 @@ void setup() {
     haveSet = true;
   }
   app.begin(millis(), petLen ? petBuf : nullptr, petLen, haveSet ? &set : nullptr);
-  Serial.printf("CRYPTLINGS up. touch %s, clock %s, free heap %u\n", touch ? "ok" : "NOT FOUND",
-                haveTime ? "NTP" : "UNVERIFIED", (unsigned)ESP.getFreeHeap());
+  Serial.printf("CRYPTLINGS up. touch %s, clock %s, wake %s, free heap %u\n", touch ? "ok" : "NOT FOUND",
+                haveTime ? "NTP" : "UNVERIFIED",
+                esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT1 ? "button" : "power on",
+                (unsigned)ESP.getFreeHeap());
 }
 
 void loop() {
   while (Serial.available()) console((char)Serial.read());
-
+  uint32_t now = millis();
   TouchIn t{false, 0, 0};
-  int x, y;
-  if (board::touchRead(x, y)) { t.down = true; t.x = x; t.y = y; }
 
-  // BOOT button: a press while the screen is off wakes it (same as a touch).
-  static bool bootWas = false;
-  bool boot = board::bootPressed();
-  if (boot && !bootWas && !app.screenOn()) { t.down = true; t.x = 2; t.y = 2; }
-  bootWas = boot;
+  // ---- the button: wake, tap to sleep, hold to power off ------------------------
+  // The external wake button (GPIO7) does everything; BOOT can wake and sleep the
+  // screen but cannot power off (it cannot wake the chip from soft power off).
+  static bool btnWas = false, btnWoke = false, btnCanOff = false, btnIgnore = true;
+  static uint32_t btnDownAt = 0;
+  bool wakeBtn = board::wakeButtonPressed();
+  bool btn = wakeBtn || board::bootPressed();
+  if (btnIgnore && !btn) btnIgnore = false;   // still held from the press that woke the chip
+  if (btn && !btnWas && !btnIgnore) {
+    btnDownAt = now;
+    btnCanOff = wakeBtn;
+    btnWoke = !app.screenOn();
+    if (btnWoke) { t.down = true; t.x = 2; t.y = 2; }   // a swallowed touch wakes the app
+  }
+  if (btn && !btnIgnore && btnCanOff) {
+    uint32_t held = now - btnDownAt;
+    if (held > HOLD_SHOW_MS) app.setPowerHold((float)(held - HOLD_SHOW_MS) / (HOLD_OFF_MS - HOLD_SHOW_MS));
+    if (held >= HOLD_OFF_MS) softPowerOff();
+  }
+  if (!btn && btnWas && !btnIgnore) {
+    if (!btnWoke && now - btnDownAt < HOLD_SHOW_MS) app.sleepNow();   // short tap: lights out
+    app.setPowerHold(0);
+  }
+  btnWas = btn;
 
-  if (app.update(millis(), t)) {
+  // ---- touch: fully off while the screen is dark (the button wakes it) ------------
+  if (app.screenOn()) {
+    if (!touchOn) { board::touchWake(); touchOn = true; }
+    int x, y;
+    if (!t.down && board::touchRead(x, y)) { t.down = true; t.x = x; t.y = y; }
+  } else if (WAKE_BUTTON_PIN >= 0) {
+    if (touchOn) { board::touchSleep(); touchOn = false; }
+  } else {
+    int x, y;                               // no wake button wired: touch still wakes it
+    if (!t.down && board::touchRead(x, y)) { t.down = true; t.x = x; t.y = y; }
+  }
+
+  // ---- app + display ------------------------------------------------------------------
+  if (app.update(now, t)) {
+    if (!displayOn) { board::displayWake(); displayOn = true; }
     app.render();
     board::displayPush(FB);
   }
+  if (!app.screenOn() && displayOn) { board::displaySleep(); displayOn = false; }
   board::buzzerService();
-  delay(app.screenOn() ? 10 : 120);   // poll slower with the screen off to save power
+
+  // ---- battery: once a minute with the screen on, never while asleep -----------------
+  // (the first read after waking happens right away, since the last one is old)
+  if (app.screenOn() && (battCache == -2 || now - battAt > 60000UL)) {
+    battCache = board::batteryPercent();
+    battAt = now;
+    static uint8_t empty = 0;
+    if (battCache == 0) { if (++empty >= 2) softPowerOff(); }   // protect the LiPo, keep the save
+    else empty = 0;
+  }
+
+  // ---- rest -----------------------------------------------------------------------------
+  if (app.screenOn() || btn) {
+    delay(10);
+  } else if (app.settings().saver && !board::buzzerBusy() && !Serial) {
+    board::lightSleep(60000);               // wakes on the button, BOOT, or once a minute
+  } else {
+    delay(120);
+  }
 }

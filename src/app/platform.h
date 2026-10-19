@@ -16,7 +16,9 @@ struct Settings {
   uint8_t  bootSeen;
   uint16_t caseNo;       // case file number shown on the boot screen
   char     name[20];     // pet name (from the name generator)
+  uint8_t  saver;        // battery saver: deep rest while the screen is off (v2+)
 };
+static const uint8_t SETTINGS_VERSION = 2;
 static const uint32_t SETTINGS_MAGIC = 0x43534554;  // "CSET"
 
 class Platform {

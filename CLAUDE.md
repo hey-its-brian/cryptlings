@@ -19,7 +19,7 @@ Full plan and brief live in the owner's Obsidian vault at `01 Projects/CRYPTLING
 
 ## Hardware
 
-Waveshare ESP32-C6-Touch-LCD-1.47: 172 x 320 IPS (JD9853, SPI), AXS5106L capacitive touch (I2C 0x63, single touch), ESP32-C6 RISC-V 160MHz, 512KB SRAM, NO PSRAM, 8MB flash, microSD (unused), LiPo via battery module (ADC on GPIO0), QMI8658A IMU always present (unused so far). The board has NO buzzer: an external passive buzzer goes on GPIO7. No RTC: NTP on boot when WiFi creds exist, else last saved time, flagged UNVERIFIED (settable on the MORE tab). Pins, init table and touch protocol: docs/HARDWARE.md.
+Waveshare ESP32-C6-Touch-LCD-1.47: 172 x 320 IPS (JD9853, SPI), AXS5106L capacitive touch (I2C 0x63, single touch), ESP32-C6 RISC-V 160MHz, 512KB SRAM, NO PSRAM, 8MB flash, microSD (unused), LiPo via battery module (ADC on GPIO0), QMI8658A IMU always present (unused so far). The board has NO buzzer: an external passive buzzer goes on GPIO17. An external momentary button on GPIO7 wakes the screen, taps it off, and a 3 s hold is a soft power off (save + deep sleep; GPIO7 is the only free deep-sleep wake pin). No RTC: NTP on boot when WiFi creds exist, else last saved time, flagged UNVERIFIED (settable on the MORE tab). Pins, init table and touch protocol: docs/HARDWARE.md.
 
 ## Layout
 
@@ -54,14 +54,14 @@ UI firmware (written 2026-10-19, builds with pioarduino 55.03.312 / Arduino core
 - Screens: boot case-file typewriter, specimen tray (4 eggs, swipe or arrows, hold to incubate), name picker, DEN (polaroid scene per species with real moon phase, fog, fireflies, day/night, five stat pips, hint line, best-action + CARE buttons), CARE list (species rows: lamp, forage, loch, walk, pants), FILE (bio, quirk, photo record, evidence with tiers and corroboration, release), MORE (almanac, sound, brightness, screen timeout, set clock, start over).
 - Overlays: hatch/evolution polaroid develop + stamp, fork card (care, hidden, rough nights), Bigfoot hiker alert with 10 s HIDE, burrow dig-out, pants picker, clock setter, start-over confirm, farewell.
 - Four 20 s minigames: Lamplight Waltz (drag), Forage (tap), Loch Hop (tap), Evening Stroll (alternate taps, also the walk).
-- Sound motifs per Brief B10 on an external buzzer (GPIO7), quiet hours, 6 unattended sounds a day, need hoot at most every 45 min.
-- Screen sleeps after the chosen timeout; touch or BOOT wakes it. Saves on events, every 10 min and on screen off.
+- Sound motifs per Brief B10 on an external buzzer (GPIO17), quiet hours, 6 unattended sounds a day, need hoot at most every 45 min.
+- Screen sleeps after the chosen timeout. Battery saver (MORE tab, default on): display sleep, touch held in reset, processor light sleep with a 60 s timer wake. Wake button on GPIO7 (tap: wake or lights out; 3 s hold: soft power off to deep sleep, ext1 wake). Battery read once a minute awake, never asleep; two empty reads trigger soft power off. IMU disabled at boot. Saves on events, every 10 min, on screen off and before power off.
 - Art: the mockup's SVG chibis rasterized to 16-color sprites (4 species x 6 forms x 5 moods), 16 scene backgrounds, icons. Fonts baked 4bpp. HOAX reuses the Legend art with a zipper.
 - A second fresh-eyes review found 13 issues (collection lost after release + reboot, hand-set clock skipping catch-up, hiker HIDE on cooldown, screen timeout gaps, result card dismissed by the ending tap, holding the egg, deferred hiker/reveal overlays, reveal dismissed early, stale scroll, owner-set clock flag, LEDC timer sharing, settings size migration); all fixed, the two serious ones have sim regression checks.
 
 Not done / next:
 - First flash and hardware shake-down: display colors and offset, touch mapping, buzzer level, battery reading, frame rate (try `-DLCD_SPI_HZ=80000000`).
-- Not built: real-step walks from the IMU, Witness Sense, deep sleep (the screen turns off but the chip keeps running; battery life is hours, not days), custom name keyboard, SD card.
+- Not built: real-step walks from the IMU, Witness Sense, custom name keyboard, SD card. The power LED (LED2 via R19) is hardwired; only removing R19 turns it off.
 - Brief's tuning numbers changed during balancing (see below); update the brief if they stick.
 
 ### Balance results (host, 20 simulated days, `make -f host.mk test`)

@@ -42,12 +42,14 @@ enum { H_NONE = 0, H_INCUBATE, H_PET, H_DIG, H_RELEASE, H_RESET };
 void App::begin(uint32_t ms, const uint8_t* petData, size_t petLen, const Settings* s) {
   ms_ = ms;
   now_ = P.unixNow();
-  if (s && s->magic == SETTINGS_MAGIC && s->version == 1) {
+  if (s && s->magic == SETTINGS_MAGIC && s->version >= 1 && s->version <= SETTINGS_VERSION) {
     set_ = *s;
+    if (set_.version < 2) { set_.saver = 1; set_.version = 2; }   // battery saver on by default
   } else {
     std::memset(&set_, 0, sizeof(set_));
     set_.magic = SETTINGS_MAGIC;
-    set_.version = 1;
+    set_.version = SETTINGS_VERSION;
+    set_.saver = 1;
     set_.sound = 0;
     set_.brightness = 1;
     set_.timeout = 1;
@@ -205,6 +207,17 @@ void App::sleepScreen() {
   sessionOpen_ = false;
   P.backlight(0);
   save(true);
+}
+
+void App::sleepNow() {
+  if (screenOn_) sleepScreen();
+}
+
+void App::setPowerHold(float p) {
+  if (p < 0) p = 0;
+  if (p > 1) p = 1;
+  if (p != powerHold_) { powerHold_ = p; dirty_ = true; }
+  if (p > 0) lastInput_ = ms_;
 }
 
 void App::ensureSession() {
@@ -612,14 +625,19 @@ void App::onTap(int x, int y) {
   }
   if (tab_ == Tab::MORE) {
     int y0 = L::CONTENT_Y + 160 - scroll_[3];
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 6; ++i) {
       int ry = y0 + i * (L::ROW_H + L::ROW_GAP);
       if (!in(x, y, L::ROW_X, ry, L::ROW_W, L::ROW_H) || y < L::CONTENT_Y) continue;
       if (i == 0) set_.sound = (uint8_t)((set_.sound + 1) % 3);
       if (i == 1) { set_.brightness = (uint8_t)((set_.brightness + 1) % 3); P.backlight(BRIGHT[set_.brightness]); }
       if (i == 2) set_.timeout = (uint8_t)((set_.timeout + 1) % 3);
-      if (i == 3) ov_ = Ov::CLOCK;
-      if (i == 4) ov_ = Ov::CONFIRM_RESET;
+      if (i == 3) {
+        set_.saver = set_.saver ? 0 : 1;
+        showToast(set_.saver ? "Battery saver on. It rests deeply while the screen is off."
+                             : "Battery saver off. Faster to wake, uses more battery.");
+      }
+      if (i == 4) ov_ = Ov::CLOCK;
+      if (i == 5) ov_ = Ov::CONFIRM_RESET;
       P.saveSettings(set_);
       return;
     }

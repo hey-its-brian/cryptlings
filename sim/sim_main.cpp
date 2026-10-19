@@ -59,8 +59,8 @@ static void drag(int x, int y0, int y1) {
   for (int i = 0; i <= 10; ++i) { ms += 20; frame({true, x, y0 + (y1 - y0) * i / 10}); }
   run(60);
 }
-static void shot(const char* name) {
-  app->render();
+static void shot(const char* name, bool rerender = true) {
+  if (rerender) app->render();
   char path[256];
   std::snprintf(path, sizeof(path), "%s/%02d_%s.ppm", outDir.c_str(), shotNo++, name);
   FILE* f = std::fopen(path, "wb");
@@ -211,7 +211,7 @@ int main(int argc, char** argv) {
   }
   // Clock + reset overlays from MORE
   tap(150, 30); run(200); drag(86, 300, 100); run(100); shot("more_rows");
-  tap(86, 190); run(200); shot("clock_overlay");
+  tap(86, 228); run(200); shot("clock_overlay");
   tap(50, 140); tap(86, 294); run(200);
   drag(86, 300, 100); tap(86, 285); run(200); shot("reset_confirm");
   tap(86, 280); run(200);
@@ -259,7 +259,7 @@ int main(int argc, char** argv) {
     advanceClock(11 * 60); run(3600); tap(86, 160); run(300);
     for (int i = 0; i < 5; ++i) app->pet().state().stat[i] = 60;
     tap(150, 30); run(200); drag(86, 300, 100); run(100);
-    tap(86, 190); run(200);
+    tap(86, 228); run(200);
     for (int i = 0; i < 4; ++i) { tap(48, 240); }    // +1 day x4
     tap(86, 294); run(300);
     const cryptlings::State& cs = app->pet().state();
@@ -267,6 +267,11 @@ int main(int argc, char** argv) {
     for (int i = 0; i < 5; ++i) if (cs.stat[i] < 9.9f) { std::printf("FAIL: stat %d below floor (%.1f)\n", i, cs.stat[i]); ++fails; }
     shot("clock_forward_burrow");
   }
+  // Battery saver row + power-off cards
+  freshPet(2);
+  tap(150, 30); run(200); drag(86, 300, 160); run(100); shot("more_with_saver");
+  app->setPowerHold(0.55f); run(100); shot("power_hold");
+  app->setPowerHold(0); app->renderPowerOff(); shot("powered_off", false);
   std::printf("regression checks: %s\n", fails ? "FAILED" : "passed");
   std::printf("wrote %d screenshots to %s (notes played: %d)\n", shotNo, outDir.c_str(), P.notes);
   return 0;

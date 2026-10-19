@@ -50,6 +50,25 @@ void App::render() {
   cv.noClip();
   drawOverlay();
   drawToast();
+  if (powerHold_ > 0) {
+    cv.fillRectA(0, 0, gfx::W, gfx::H, th::bg, 220);
+    drawPaperCard(14, 96, 144, 132);
+    cv.textCenter(F16H, 86, 122, "Keep holding", th::ink);
+    cv.textCenter(F16H, 86, 140, "to power off", th::ink);
+    drawRing(86, 182, 24, powerHold_, th::lantern);
+    cv.textCenter(F12B, 86, 220, "Your pet is saved.", th::sepia);
+  }
+}
+
+void App::renderPowerOff() {
+  save(true);
+  cv.noClip();
+  cv.fill(th::bg);
+  for (int i = 0; i < 4; ++i) cv.fillEllipse(20 + i * 44, 276 + (i % 2) * 12, 50, 9, th::fog, 45);
+  cv.moon(86, 92, 22, Pet::moonPhase(now_), th::moon, th::line);
+  cv.textCenter(F24, 86, 160, "Powered off", th::moon);
+  cv.textWrap(F14, 12, 190, 148, set_.hasPet ? "Your cryptid is curled up in its burrow. Press the button to wake it."
+                                             : "Press the button to wake.", th::text, 2, 0, true);
 }
 
 // ---- chrome ----------------------------------------------------------------
@@ -426,18 +445,18 @@ void App::drawMore() {
   static const char* sounds[3] = {"On", "Chimes only", "Off"};
   static const char* bright[3] = {"Low", "Medium", "High"};
   static const char* tos[3] = {"30 seconds", "1 minute", "2 minutes"};
-  const char* titles[5] = {"SOUND", "BRIGHTNESS", "SCREEN OFF AFTER", "SET CLOCK", "START OVER"};
-  const char* subs[5] = {sounds[set_.sound % 3], bright[set_.brightness % 3], tos[set_.timeout % 3],
-                         "Adjust date and time", "New egg tray"};
+  const char* titles[6] = {"SOUND", "BRIGHTNESS", "SCREEN OFF AFTER", "BATTERY SAVER", "SET CLOCK", "START OVER"};
+  const char* subs[6] = {sounds[set_.sound % 3], bright[set_.brightness % 3], tos[set_.timeout % 3],
+                         set_.saver ? "On: deep rest" : "Off", "Adjust date and time", "New egg tray"};
   int y0 = L::CONTENT_Y + 160 - scroll_[3];
-  for (int i = 0; i < 5; ++i) {
+  for (int i = 0; i < 6; ++i) {
     int ry = y0 + i * (L::ROW_H + L::ROW_GAP);
     cv.fillRound(L::ROW_X, ry, L::ROW_W, L::ROW_H, 5, th::panel);
     cv.roundRect(L::ROW_X, ry, L::ROW_W, L::ROW_H, 5, th::line, 2);
     cv.text(F14B, L::ROW_X + 10, ry + 21, titles[i], th::text);
-    cv.text(F12B, L::ROW_X + 10, ry + 39, subs[i], i == 4 ? th::ember : th::lantern);
+    cv.text(F12B, L::ROW_X + 10, ry + 39, subs[i], i == 5 ? th::ember : th::lantern);
   }
-  int yend = y0 + 5 * (L::ROW_H + L::ROW_GAP) + 6;
+  int yend = y0 + 6 * (L::ROW_H + L::ROW_GAP) + 6;
   yend = cv.textWrap(F12B, 8, yend + F12B.ascent, 156,
                      "CRYPTLINGS. A field journal for creatures nobody believes in. Be kind to them.", th::dim, 1);
   contentH_[3] = yend + 8 + scroll_[3] - L::CONTENT_Y;

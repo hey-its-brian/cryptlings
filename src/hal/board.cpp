@@ -3,6 +3,9 @@
 
 #include <SPI.h>
 #include <Wire.h>
+#include <driver/gpio.h>
+#include <driver/rtc_io.h>
+#include <esp_sleep.h>
 
 namespace board {
 
@@ -64,6 +67,33 @@ void lcdCmd(uint8_t c, const uint8_t* d, int n) {
   digitalWrite(PIN_LCD_CS, HIGH);
 }
 }  // namespace
+
+void releaseHolds() {
+  gpio_hold_dis((gpio_num_t)PIN_BACKLIGHT);
+  gpio_hold_dis((gpio_num_t)PIN_TP_RST);
+#if WAKE_BUTTON_PIN >= 0
+  rtc_gpio_deinit((gpio_num_t)WAKE_BUTTON_PIN);
+  pinMode(WAKE_BUTTON_PIN, INPUT_PULLUP);
+#endif
+}
+
+void displaySleep() {
+  SPI.beginTransaction(lcdSpi);
+  lcdCmd(0x28, nullptr, 0);                 // DISPOFF
+  lcdCmd(0x10, nullptr, 0);                 // SLPIN
+  SPI.endTransaction();
+  delay(5);
+}
+
+void displayWake() {
+  SPI.beginTransaction(lcdSpi);
+  lcdCmd(0x11, nullptr, 0);                 // SLPOUT
+  SPI.endTransaction();
+  delay(120);
+  SPI.beginTransaction(lcdSpi);
+  lcdCmd(0x29, nullptr, 0);                 // DISPON
+  SPI.endTransaction();
+}
 
 void displayBegin() {
   pinMode(PIN_SD_CS, OUTPUT);
@@ -137,6 +167,25 @@ bool touchBegin() {
   return touchOk;
 }
 
+void touchSleep() {
+  digitalWrite(PIN_TP_RST, LOW);
+  touchOk = false;
+}
+
+void touchWake() {
+  digitalWrite(PIN_TP_RST, HIGH);
+  delay(50);
+  Wire.beginTransmission(TOUCH_ADDR);
+  touchOk = Wire.endTransmission() == 0;
+}
+
+void imuOff() {
+  Wire.beginTransmission(IMU_ADDR);
+  Wire.write(0x08);                         // CTRL7: accelerometer and gyro disabled
+  Wire.write(0x00);
+  Wire.endTransmission();
+}
+
 bool touchRead(int& x, int& y) {
   if (!touchOk) return false;
   uint8_t d[14] = {0};
@@ -204,6 +253,8 @@ void buzzerService() {
 #endif
 }
 
+bool buzzerBusy() { return playing || qLen > 0; }
+
 // ---- battery and button ------------------------------------------------------
 int batteryPercent() {
   uint32_t mv = analogReadMilliVolts(PIN_BAT_ADC) * 3;
@@ -214,6 +265,57 @@ int batteryPercent() {
 }
 
 bool bootPressed() { return digitalRead(PIN_BOOT) == LOW; }
+
+bool wakeButtonPressed() {
+#if WAKE_BUTTON_PIN >= 0
+  return digitalRead(WAKE_BUTTON_PIN) == LOW;
+#else
+  return false;
+#endif
+}
+
+// ---- sleep -------------------------------------------------------------------
+void lightSleep(uint32_t ms) {
+  esp_sleep_enable_timer_wakeup((uint64_t)ms * 1000ULL);
+#if WAKE_BUTTON_PIN >= 0
+  gpio_wakeup_enable((gpio_num_t)WAKE_BUTTON_PIN, GPIO_INTR_LOW_LEVEL);
+#endif
+  gpio_wakeup_enable((gpio_num_t)PIN_BOOT, GPIO_INTR_LOW_LEVEL);
+  esp_sleep_enable_gpio_wakeup();
+  esp_light_sleep_start();
+#if WAKE_BUTTON_PIN >= 0
+  gpio_wakeup_disable((gpio_num_t)WAKE_BUTTON_PIN);
+#endif
+  gpio_wakeup_disable((gpio_num_t)PIN_BOOT);
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+}
+
+void powerOff() {
+  backlight(0);
+  displaySleep();
+  touchSleep();
+  imuOff();
+#if BUZZER_PIN >= 0
+  ledcWrite(BUZZER_PIN, 0);
+#endif
+  // Hold the backlight transistor and the touch reset low through deep sleep.
+  ledcDetach(PIN_BACKLIGHT);
+  pinMode(PIN_BACKLIGHT, OUTPUT);
+  digitalWrite(PIN_BACKLIGHT, LOW);
+  gpio_hold_en((gpio_num_t)PIN_BACKLIGHT);
+  gpio_hold_en((gpio_num_t)PIN_TP_RST);
+  // (the C6 keeps single-pin holds through deep sleep, no global hold needed)
+#if WAKE_BUTTON_PIN >= 0
+  // Wait for the hand to let go, or the button would wake it straight back up.
+  uint32_t t0 = millis();
+  while (wakeButtonPressed() && millis() - t0 < 10000) delay(10);
+  delay(50);
+  rtc_gpio_pullup_en((gpio_num_t)WAKE_BUTTON_PIN);
+  rtc_gpio_pulldown_dis((gpio_num_t)WAKE_BUTTON_PIN);
+  esp_sleep_enable_ext1_wakeup_io(1ULL << WAKE_BUTTON_PIN, ESP_EXT1_WAKEUP_ANY_LOW);
+#endif
+  esp_deep_sleep_start();
+}
 
 }  // namespace board
 #endif

@@ -20,6 +20,10 @@ class App {
   // should be pushed to the display.
   bool update(uint32_t ms, const TouchIn& t);
   bool screenOn() const { return screenOn_; }
+  const Settings& settings() const { return set_; }
+  void sleepNow();                   // button tap with the screen on: lights out now
+  void setPowerHold(float p);        // 0 = hidden, 0..1 = "keep holding to power off"
+  void renderPowerOff();             // save, then draw the powered-off card
   void render();                     // draws the current frame into the canvas
 
   // For the serial console and tests.
@@ -46,6 +50,7 @@ class App {
   bool screenOn_ = true;
   uint32_t lastInput_ = 0, lastTick_ = 0, lastSave_ = 0, lastAnim_ = 0, lastSessionMs_ = 0;
   bool sessionOpen_ = false;
+  float powerHold_ = 0;
   bool petValid_ = false;          // pet_ holds a real (possibly released) pet: save it
   uint32_t ovSince_ = 0;           // when the current overlay appeared
   uint8_t pendingReveal_ = 0xFF;   // a hatch/evolution waiting for the screen to be free
