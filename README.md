@@ -5,6 +5,9 @@ A cozy, gently creepy virtual pet for the Waveshare ESP32-C6-Touch-LCD-1.47 and 
 The theme is a cryptozoologist's field journal at midnight: case files, polaroids, rubber stamps, fog and fireflies. Never techno, never horror.
 
 ![Egg to hatch](screenshots/02_egg_to_hatch.png)
+![The DEN on the round screen](screenshots/stopwatch_den.png)
+
+Two boards, one codebase: the Waveshare ESP32-C6-Touch-LCD-1.47 (172 x 320 rectangle) and the M5Stack StopWatch (466 x 466 round AMOLED).
 
 ## Features
 
@@ -14,8 +17,9 @@ The theme is a cryptozoologist's field journal at midnight: case files, polaroid
 - **Four 20 second minigames.** Lamplight Waltz (drag the moth around the glow), Forage (tap), Loch Hop (tap the bubbles, not the boats) and Evening Stroll (alternate taps; it is also the walk).
 - **Evidence and case files.** Check-ins roll folklore evidence in five tiers from Hearsay to Irrefutable, with corroboration counts kept across pets. The File tab holds the bio, the photo record of every form reached, and the release ceremony.
 - **Time away is handled kindly.** Up to 72 hours of absence is caught up at half decay with a floor of 10 on every stat. Longer than that and the pet is found hibernating in a burrow; hold to dig it out.
-- **Battery aware.** Screen timeout, battery saver with processor light sleep, a soft power off to deep sleep on a 3 second hold of the wake button, and a battery reading once a minute.
-- **Sound motifs** on an external passive buzzer, respecting quiet hours and capped at six unattended sounds a day.
+- **Battery aware.** Screen timeout, battery saver with processor light sleep, a soft power off on a 3 second hold of the wake or power button, and a battery reading once a minute.
+- **Sound motifs** respecting quiet hours and capped at six unattended sounds a day: a passive buzzer on the C6, the built-in speaker plus vibration on the StopWatch.
+- **Motion on the StopWatch.** Turn it face down to put the pet to bed, walk the Nightcrawler with real steps, tilt to steer in the Lamplight Waltz.
 - **Host-testable engine and a desktop simulator.** The engine has no Arduino dependencies, so it builds on a Mac or Linux box with g++. The simulator renders every screen with scripted touches and writes screenshots, which is where most UI work was checked before flashing.
 
 ## Screenshots
@@ -68,37 +72,55 @@ Pins, the display init table, the touch protocol, battery notes and the reason t
 
 ### Prebuilt firmware
 
-Grab the binaries from the [latest release](https://github.com/hey-its-brian/cryptlings/releases/latest) and flash with esptool:
+Grab the images for your board from the [latest release](https://github.com/hey-its-brian/cryptlings/releases/latest) and flash with esptool. Each board has a full image for `0x0` (bootloader, partition table and app) and an app-only image for `0x10000`. **The full image wipes any saved pet and settings**; the app image keeps them.
+
+M5Stack StopWatch (ESP32-S3):
 
 ```bash
-esptool.py --chip esp32c6 write_flash 0x0 cryptlings-v1.0.0-full.bin
+esptool.py --chip esp32s3 write_flash 0x0 cryptlings-stopwatch-v1.1.0-full.bin
 ```
-
-The full image at `0x0` includes the bootloader and partition table and **wipes any saved pet and settings**. To keep them, flash the app image alone at `0x10000`:
 
 ```bash
-esptool.py --chip esp32c6 write_flash 0x10000 cryptlings-v1.0.0-app.bin
+esptool.py --chip esp32s3 write_flash 0x10000 cryptlings-stopwatch-v1.1.0-app.bin
 ```
 
-The board shows up as a USB JTAG/serial device. If it does not respond, hold BOOT while plugging in USB to enter download mode.
+If the StopWatch does not show up for upload, hold its power button for about 2 seconds until the green LED lights (download mode), then flash.
+
+Waveshare ESP32-C6-Touch-LCD-1.47:
+
+```bash
+esptool.py --chip esp32c6 write_flash 0x0 cryptlings-c6-v1.1.0-full.bin
+```
+
+```bash
+esptool.py --chip esp32c6 write_flash 0x10000 cryptlings-c6-v1.1.0-app.bin
+```
+
+The C6 shows up as a USB JTAG/serial device. If it does not respond, hold BOOT while plugging in USB to enter download mode.
 
 ### Build from source
 
-Requires [PlatformIO](https://platformio.org/). The ESP32-C6 needs Arduino core 3.x, which comes from the pioarduino platform pinned in `platformio.ini`.
+Requires [PlatformIO](https://platformio.org/). Both boards build on the pioarduino platform (Arduino core 3.x) pinned in `platformio.ini`; the StopWatch pulls M5Unified and M5GFX on first build.
 
 ```bash
-pio run -t upload && pio device monitor
+pio run -e esp32-c6 -t upload && pio device monitor -e esp32-c6
 ```
 
-Useful build flags (add to `build_flags` in `platformio.ini`):
+```bash
+pio run -e stopwatch -t upload && pio device monitor -e stopwatch
+```
 
-| Flag | Effect |
-|---|---|
-| `-DWIFI_SSID=\"name\" -DWIFI_PASS=\"pass\"` | Sync the clock over NTP at boot. Without it the clock is flagged UNVERIFIED and can be set on the MORE tab |
-| `-DTZ_RULE=\"...\"` | POSIX time zone rule. Defaults to America/New_York |
-| `-DBUZZER_PIN=<n>` | Buzzer pin, `-1` for silence. Default 17 |
-| `-DWAKE_BUTTON_PIN=<n>` | Wake button pin, `-1` for none. Default 7 |
-| `-DLCD_SPI_HZ=80000000` | Faster SPI for the panel. Default 40 MHz |
+Useful build flags (add to the environment's `build_flags` in `platformio.ini`):
+
+| Flag | Board | Effect |
+|---|---|---|
+| `-DWIFI_SSID=\"name\" -DWIFI_PASS=\"pass\"` | both | Sync the clock over NTP at boot. Without it the clock is flagged UNVERIFIED and can be set on the MORE tab (the StopWatch's RTC then keeps it through power off) |
+| `-DTZ_RULE=\"...\"` | both | POSIX time zone rule. Defaults to America/New_York |
+| `-DBUZZER_PIN=<n>` | C6 | Buzzer pin, `-1` for silence. Default 17 |
+| `-DWAKE_BUTTON_PIN=<n>` | C6 | Wake button pin, `-1` for none. Default 7 |
+| `-DLCD_SPI_HZ=80000000` | C6 | Faster SPI for the panel. Default 40 MHz |
+| `-DFB_SWAP_BYTES=0` | StopWatch | Flip the framebuffer byte order if reds and blues come out swapped |
+| `-DACC_X=(-ay) -DACC_Y=(ax)` | StopWatch | Remap the motion sensor axes if tilting feels wrong; the serial console's `a` command prints the reading in screen terms |
 
 ## Host builds
 
