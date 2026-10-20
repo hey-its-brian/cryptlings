@@ -1,6 +1,6 @@
 # CRYPTLINGS
 
-A cozy, gently creepy virtual pet for the Waveshare ESP32-C6-Touch-LCD-1.47. You are a field agent for the Dept. of Odd Fauna. At first boot you pick one of four cryptid eggs (Mothman, Bigfoot, Nessie, or the Fresno Nightcrawler), name it, and raise it to an adult on the real clock. Cryptids are nocturnal: they wake at dusk, want attention in the evening, and sleep through the day. Well raised adults become a **LEGEND**, neglected ones a **BLURRY PHOTO**, spoiled ones a **HOAX**. Nothing dies.
+A cozy, gently creepy virtual pet for the Waveshare ESP32-C6-Touch-LCD-1.47 and the M5Stack StopWatch (round AMOLED). You are a field agent for the Dept. of Odd Fauna. At first boot you pick one of four cryptid eggs (Mothman, Bigfoot, Nessie, or the Fresno Nightcrawler), name it, and raise it to an adult on the real clock. Cryptids are nocturnal: they wake at dusk, want attention in the evening, and sleep through the day. Well raised adults become a **LEGEND**, neglected ones a **BLURRY PHOTO**, spoiled ones a **HOAX**. Nothing dies.
 
 The theme is a cryptozoologist's field journal at midnight: case files, polaroids, rubber stamps, fog and fireflies. Never techno, never horror.
 
@@ -37,6 +37,25 @@ The sprite sheet (4 species x 6 forms, awake and asleep):
 ![Sprites](screenshots/sprites.png)
 
 ## Hardware
+
+Two boards build from the same code. The engine, the flow and the minigame rules are shared; each screen shape has its own layout, art and fonts.
+
+### M5Stack StopWatch (round)
+
+- ESP32-S3 with 8 MB PSRAM, 1.75" 466 x 466 round AMOLED with touch, two side keys, a power button, speaker, vibration motor, real-time clock, BMI270 motion sensor and a 450 mAh battery. Nothing to wire.
+- The circle is a lens on the cryptid's world: the scene fills it, holds draw as rings, Nessie's loch runs up the rim, the minigame timer runs around the edge.
+- Extras over the C6: a real speaker, vibration on big moments, a clock that survives power off, and motion (face down to sleep, real steps on walks, tilt to steer in the Lamplight Waltz).
+- Build: `pio run -e stopwatch -t upload`. Details, controls and what still needs checking on hardware: [docs/STOPWATCH.md](docs/STOPWATCH.md).
+
+![The DEN on the round screen](screenshots/stopwatch_den.png)
+![Setup](screenshots/stopwatch_setup.png)
+![Care, File, More and a Legend](screenshots/stopwatch_tabs.png)
+![Minigames and a real walk](screenshots/stopwatch_games.png)
+![Hiker, pants, burrow, power off](screenshots/stopwatch_moments.png)
+
+Rendered by the simulator from the round build's own drawing code (`make -f host.mk sim_round`, then `python3 tools/round_sheets.py`).
+
+### Waveshare ESP32-C6-Touch-LCD-1.47 (rectangle)
 
 - **Waveshare ESP32-C6-Touch-LCD-1.47**: 172 x 320 IPS (JD9853 over SPI), AXS5106L capacitive touch, ESP32-C6 at 160 MHz, 512 KB SRAM, no PSRAM, 8 MB flash, LiPo charging.
 - **A momentary push button** between GPIO7 and GND (you add it). Tap wakes the screen or turns it off; hold 3 seconds for a soft power off. GPIO7 is the only free pin that can wake the chip from deep sleep.
@@ -88,7 +107,8 @@ No board needed for these.
 ```bash
 make -f host.mk test    # engine regression tests and the 20 day balance matrix
 make -f host.mk trace   # the same with a verbose stat trace
-make -f host.mk sim     # renders every screen and flow to build/shots/ (PPM)
+make -f host.mk sim        # renders every screen and flow to build/shots/ (PPM)
+make -f host.mk sim_round  # the same for the round StopWatch layout, build/shots_round/
 ```
 
 ### Balance
@@ -110,14 +130,17 @@ Adults arrive on the evening of day 8 (Nessie day 10). Every number lives in the
 ```
 include/cryptlings_core.h   engine API, Tuning (every number is tunable), POD State
 src/cryptlings_core.cpp     the engine: stats, schedule, quirks, lifecycle, fork, evidence, catch-up
-src/app/                    portable UI: renderer, every screen, overlays, minigames, sound cues
-src/assets/                 generated: 4bpp fonts and 16-color sprites, scenes and icons
-src/hal/board.*             display, touch, backlight, buzzer, battery, buttons, sleep
-src/main.cpp                firmware: wires the app to the board, NVS saves, clock, debug console
+src/app/                    portable UI: renderer, flow, minigame rules, sound cues
+src/app/app_draw.cpp        the rectangle layout (C6) and its hit testing
+src/app/app_draw_round.cpp  the round layout (StopWatch) and its hit testing
+src/assets/                 generated: 4bpp fonts and 16-color sprites, scenes and icons (rectangle and _round)
+src/hal/board.*             C6 board: display, touch, backlight, buzzer, battery, buttons, sleep
+src/main.cpp                C6 firmware: wires the app to the board, NVS saves, clock, debug console
+src/main_stopwatch.cpp      StopWatch firmware (M5Unified): display, touch, keys, power, sound, RTC, motion
 sim/sim_main.cpp            desktop simulator with scripted touches
 host_test/test_host.cpp     engine tests and the balance matrix
 tools/                      bake_fonts.py, art/render.js and bake_sprites.py (regenerate assets)
-docs/                       HARDWARE.md and the player's guide
+docs/                       HARDWARE.md (C6), STOPWATCH.md, and the player's guide
 ```
 
 The engine is pure C++17 with a plain-old-data `State` (244 bytes, CRC checked) that is saved to NVS on every event, every 10 minutes, on screen off and before power off. The UI layer talks to the board through a small platform interface, so the same code draws on the panel and in the simulator.
@@ -129,13 +152,16 @@ The chibi sprites start as SVG. `tools/art/render.js` rasterizes them with Playw
 ```bash
 node tools/art/render.js && python3 tools/bake_sprites.py
 python3 tools/bake_fonts.py
+# round StopWatch assets (200 px creatures, 466 px scenes drawn for the circle, larger fonts)
+node tools/art/render.js --round && python3 tools/bake_sprites.py --round
+python3 tools/bake_fonts.py --round
 ```
 
 Fonts are Courier Prime, Grenze, Grenze Gotisch and Patrick Hand, all under the SIL Open Font License.
 
 ## Playing over serial
 
-Everything is played on the touch screen. The USB serial console (115200 baud) is for debugging only: `s` prints the pet's status, `w` and `W` fast-forward an hour or a day, `S` forces a save, `?` prints help.
+Everything is played on the touch screen. The USB serial console (115200 baud) is for debugging only: `s` prints the pet's status, `w` and `W` fast-forward an hour or a day, `S` forces a save, `?` prints help. On the StopWatch, `a` prints the accelerometer in screen terms.
 
 ## House rules
 

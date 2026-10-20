@@ -1,5 +1,8 @@
-// App drawing: every screen and overlay. Geometry comes from layout.h so the
-// hit tests in app.cpp line up with what is drawn here.
+// App drawing for the 172 x 320 rectangle (Waveshare C6 build): every screen,
+// overlay and minigame, plus hitAt(), which answers what a touch lands on with
+// the same geometry. The round StopWatch layout is app_draw_round.cpp.
+#include "target.h"
+#if !CRYPT_ROUND
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -53,10 +56,10 @@ void App::render() {
   if (powerHold_ > 0) {
     cv.fillRectA(0, 0, gfx::W, gfx::H, th::bg, 220);
     drawPaperCard(14, 96, 144, 132);
-    cv.textCenter(F16H, 86, 122, "Keep holding", th::ink);
-    cv.textCenter(F16H, 86, 140, "to power off", th::ink);
+    cv.textCenter(FHead, 86, 122, "Keep holding", th::ink);
+    cv.textCenter(FHead, 86, 140, "to power off", th::ink);
     drawRing(86, 182, 24, powerHold_, th::lantern);
-    cv.textCenter(F12B, 86, 220, "Your pet is saved.", th::sepia);
+    cv.textCenter(FLabel, 86, 220, "Your pet is saved.", th::sepia);
   }
 }
 
@@ -66,8 +69,8 @@ void App::renderPowerOff() {
   cv.fill(th::bg);
   for (int i = 0; i < 4; ++i) cv.fillEllipse(20 + i * 44, 276 + (i % 2) * 12, 50, 9, th::fog, 45);
   cv.moon(86, 92, 22, Pet::moonPhase(now_), th::moon, th::line);
-  cv.textCenter(F24, 86, 160, "Powered off", th::moon);
-  cv.textWrap(F14, 12, 190, 148, set_.hasPet ? "Your cryptid is curled up in its burrow. Press the button to wake it."
+  cv.textCenter(FTitle, 86, 160, "Powered off", th::moon);
+  cv.textWrap(FBody, 12, 190, 148, set_.hasPet ? "Your cryptid is curled up in its burrow. Press the button to wake it."
                                              : "Press the button to wake.", th::text, 2, 0, true);
 }
 
@@ -80,13 +83,13 @@ void App::drawStatus() {
   int h = sec / 3600, m = (sec / 60) % 60;
   char buf[24];
   std::snprintf(buf, sizeof(buf), "%d:%02d%s", h % 12 == 0 ? 12 : h % 12, m, h < 12 ? "A" : "P");
-  cv.text(F12B, 17, 12, buf, th::fog);
+  cv.text(FLabel, 17, 12, buf, th::fog);
   int x = gfx::W - 4;
   int bat = P.batteryPercent();
   if (bat >= 0) {
     std::snprintf(buf, sizeof(buf), "%d%%", bat);
-    x -= gfx::Canvas::textWidth(F12B, buf);
-    cv.text(F12B, x, 12, buf, bat < 20 ? th::ember : th::fog);
+    x -= gfx::Canvas::textWidth(FLabel, buf);
+    cv.text(FLabel, x, 12, buf, bat < 20 ? th::ember : th::fog);
     x -= 10;
     cv.rect(x, 3, 7, 10, th::fog);
     cv.fillRect(x + 2, 1, 3, 2, th::fog);
@@ -106,7 +109,7 @@ void App::drawTabs() {
     int x = L::TAB_X0 + i * (L::TAB_W + L::TAB_GAP);
     bool on = (int)tab_ == i;
     cv.fillRound(x, L::TABS_Y + 2, L::TAB_W, L::TABS_H + 4, 5, on ? th::manila : th::manilaDk);
-    cv.textCenter(F16H, x + L::TAB_W / 2, L::TABS_Y + 17, names[i], on ? th::ink : th::bg);
+    cv.textCenter(FHead, x + L::TAB_W / 2, L::TABS_Y + 17, names[i], on ? th::ink : th::bg);
   }
   cv.hline(0, L::CONTENT_Y - 2, gfx::W, (int)tab_ == 0 ? th::bg : th::manila);
 }
@@ -122,9 +125,9 @@ void App::drawButton(int x, int y, int w, int h, const char* label, bool primary
   cv.roundRect(x, y, w, h, 5, th::ink, 2);
   if (icon) {
     cv.sprite(*(const Sprite*)icon, x + w / 2 - 8, y + 7);
-    cv.textCenter(F14B, x + w / 2, y + h - 9, label, th::ink);
+    cv.textCenter(FBodyB, x + w / 2, y + h - 9, label, th::ink);
   } else {
-    cv.textCenter(F14B, x + w / 2, y + h / 2 + 5, label, th::ink);
+    cv.textCenter(FBodyB, x + w / 2, y + h / 2 + 5, label, th::ink);
   }
 }
 
@@ -137,7 +140,7 @@ void App::drawHoldButton(int x, int y, int w, int h, const char* label, int id) 
     cv.noClip();
   }
   cv.roundRect(x, y, w, h, 6, th::lantern, 2);
-  cv.textCenter(F14B, x + w / 2, y + h / 2 + 5, label, th::ink);
+  cv.textCenter(FBodyB, x + w / 2, y + h / 2 + 5, label, th::ink);
 }
 
 void App::drawRing(int cx, int cy, int r, float p, Color c) {
@@ -152,13 +155,13 @@ void App::drawRing(int cx, int cy, int r, float p, Color c) {
 
 void App::drawToast() {
   if (!toast_[0] || !toastUntil_) return;
-  int lines = gfx::Canvas::wrapLines(F12B, 148, toast_);
+  int lines = gfx::Canvas::wrapLines(FLabel, 148, toast_);
   if (lines > 4) lines = 4;
-  int h = lines * (F12B.line + 2) + 12;
+  int h = lines * (FLabel.line + 2) + 12;
   int y = 44;
   drawPaperCard(6, y, 160, h);
   cv.fillRectA(70, y - 4, 32, 9, th::manila, 190);   // tape
-  cv.textWrap(F12B, 12, y + 6 + F12B.ascent, 148, toast_, th::ink, 2, 4);
+  cv.textWrap(FLabel, 12, y + 6 + FLabel.ascent, 148, toast_, th::ink, 2, 4);
 }
 
 // ---- creature + photo ---------------------------------------------------------
@@ -198,12 +201,12 @@ void App::drawPhoto(int px, int py, bool live) {
   if (s.hibernating) {
     cv.fillEllipse(px + 72, py + 112, 44, 16, gfx::hex(0x3A2E22));
     cv.fillEllipse(px + 72, py + 108, 36, 12, gfx::hex(0x4A3A2A));
-    cv.text(F16P, px + 96, py + 92 - (int)((ms_ / 300) % 6), "z", th::moon);
+    cv.text(FHand, px + 96, py + 92 - (int)((ms_ / 300) % 6), "z", th::moon);
   } else {
     drawCreature(cx, cy, form, moodIdx(), hidden ? 50 : 255);
     if (moodIdx() == 3 && !hidden) {
       int zz = (int)((ms_ / 250) % 12);
-      cv.text(F16P, px + 96 + zz / 3, py + 46 - zz, "z", th::moon, (uint8_t)(255 - zz * 18));
+      cv.text(FHand, px + 96 + zz / 3, py + 46 - zz, "z", th::moon, (uint8_t)(255 - zz * 18));
     }
   }
   // Fog drifts in front.
@@ -226,22 +229,22 @@ void App::drawDen() {
   // Stamp on the photo
   int form = (int)s.form;
   const char* sw = STAMP_WORD[form];
-  int sw_w = gfx::Canvas::textWidth(F12B, sw) + 8;
+  int sw_w = gfx::Canvas::textWidth(FLabel, sw) + 8;
   Color sc = form == 3 ? th::stamp : form == 4 ? th::confirmed : th::stampBlue;
   int sx = L::PHOTO_X + L::PHOTO_W - sw_w - 4, sy = L::PHOTO_Y + 4;
   cv.fillRectA(sx, sy, sw_w, 16, th::paper, 200);
   cv.rect(sx, sy, sw_w, 16, sc, 2);
-  cv.text(F12B, sx + 4, sy + 12, sw, sc);
+  cv.text(FLabel, sx + 4, sy + 12, sw, sc);
   // Caption
-  int nw = cv.text(F16P, L::POL_X + 8, L::CAPTION_Y + 18, set_.name, th::ink);
+  int nw = cv.text(FHand, L::POL_X + 8, L::CAPTION_Y + 18, set_.name, th::ink);
   char st[24];
   std::snprintf(st, sizeof(st), "%s", form == (int)Form::BLURRY ? "BLURRY" : STAGE_NAME[form]);
   upper(st);
-  int stw = gfx::Canvas::textWidth(F12B, st) + 8;
+  int stw = gfx::Canvas::textWidth(FLabel, st) + 8;
   int stx = L::POL_X + L::POL_W - stw - 6;
   if (L::POL_X + 8 + nw + 6 <= stx) {
     cv.rect(stx, L::CAPTION_Y + 5, stw, 16, th::stamp, 2);
-    cv.text(F12B, stx + 4, L::CAPTION_Y + 17, st, th::stamp);
+    cv.text(FLabel, stx + 4, L::CAPTION_Y + 17, st, th::stamp);
   }
 
   // Stats: icon + 5 pips each
@@ -269,7 +272,7 @@ void App::drawDen() {
   }
   // Hint
   char hb[48];
-  cv.textCenter(F12B, gfx::W / 2, L::HINT_Y + 13, hintLine(hb, sizeof(hb)), th::lantern);
+  cv.textCenter(FLabel, gfx::W / 2, L::HINT_Y + 13, hintLine(hb, sizeof(hb)), th::lantern);
   // Buttons
   int a = bestAction();
   const char* lab = "PAT";
@@ -331,8 +334,8 @@ void App::drawCare() {
     cv.fillRound(L::ROW_X, y, L::ROW_W, L::ROW_H, 5, dim ? th::manilaDk : th::paper);
     cv.roundRect(L::ROW_X, y, L::ROW_W, L::ROW_H, 5, th::ink, 2);
     cv.sprite(*iconSprite(ic), L::ROW_X + 8, y + 17);
-    cv.text(F14B, L::ROW_X + 32, y + 21, title, th::ink);
-    cv.textWrap(F12B, L::ROW_X + 32, y + 39, L::ROW_W - 38, sub, th::sepia, 0, 1);
+    cv.text(FBodyB, L::ROW_X + 32, y + 21, title, th::ink);
+    cv.textWrap(FLabel, L::ROW_X + 32, y + 39, L::ROW_W - 38, sub, th::sepia, 0, 1);
   }
   contentH_[1] = n * (L::ROW_H + L::ROW_GAP) + 8;
 }
@@ -345,21 +348,21 @@ void App::drawFile() {
   cv.clip(0, L::CONTENT_Y, gfx::W, gfx::H - L::CONTENT_Y);
   int x = 8, w = 156;
   int y = L::CONTENT_Y + 6 - scroll_[2];
-  y += F16H.ascent;
-  cv.text(F16H, x, y, T.name, th::ink);
+  y += FHead.ascent;
+  cv.text(FHead, x, y, T.name, th::ink);
   y += 6;
-  y = cv.textWrap(F12B, x, y + F12B.ascent, w, T.origin, th::sepia, 1);
+  y = cv.textWrap(FLabel, x, y + FLabel.ascent, w, T.origin, th::sepia, 1);
   y += 2;
-  y = cv.textWrap(F14, x, y + F14.ascent, w, T.bio, th::ink, 1);
+  y = cv.textWrap(FBody, x, y + FBody.ascent, w, T.bio, th::ink, 1);
   auto label = [&](const char* t) {
     y += 4;
     for (int i = 0; i < w; i += 4) cv.fillRect(x + i, y, 2, 1, th::sepia);
-    y += 4 + F12B.ascent;
-    cv.text(F12B, x, y, t, th::sepia);
+    y += 4 + FLabel.ascent;
+    cv.text(FLabel, x, y, t, th::sepia);
     y += 6;
   };
   label("KNOWN QUIRK");
-  y = cv.textWrap(F14, x, y + F14.ascent, w, T.quirk, th::ink, 1);
+  y = cv.textWrap(FBody, x, y + FBody.ascent, w, T.quirk, th::ink, 1);
   label("PHOTO RECORD");
   static const int forms[5] = {0, 1, 2, 3, 4};
   for (int i = 0; i < 5; ++i) {
@@ -380,7 +383,7 @@ void App::drawFile() {
     std::snprintf(nm, sizeof(nm), "%s", got ? STAGE_NAME[f] : "???");
     if (f == (int)Form::BLURRY && got) std::snprintf(nm, sizeof(nm), "BLURRY");
     upper(nm);
-    cv.textCenter(F12B, tx + 37, ty + 73, nm, th::ink);
+    cv.textCenter(FLabel, tx + 37, ty + 73, nm, th::ink);
   }
   y += 3 * 82 + 2;
   int found = 0;
@@ -389,23 +392,23 @@ void App::drawFile() {
   std::snprintf(lb, sizeof(lb), "EVIDENCE %d/16", found);
   label(lb);
   if (!found) {
-    y = cv.textWrap(F14, x, y + F14.ascent, w, "Nothing yet. Check in at night, play, and keep up good care.", th::ink, 1);
+    y = cv.textWrap(FBody, x, y + FBody.ascent, w, "Nothing yet. Check in at night, play, and keep up good care.", th::ink, 1);
   }
   for (int i = 0; i < 16; ++i) {
     uint8_t c = s.evidence[s.species][i];
     if (!c) continue;
     char line[80];
     std::snprintf(line, sizeof(line), "%s", T.evidence[i]);
-    y = cv.textWrap(F14, x, y + F14.ascent, w, line, th::ink, 0);
+    y = cv.textWrap(FBody, x, y + FBody.ascent, w, line, th::ink, 0);
     if (c >= 5) std::snprintf(line, sizeof(line), "CONFIRMED x%d", c);
     else if (c > 1) std::snprintf(line, sizeof(line), "%s x%d", TIER_NAME[(int)Pet::evidenceTier(i)], c);
     else std::snprintf(line, sizeof(line), "%s", TIER_NAME[(int)Pet::evidenceTier(i)]);
-    cv.text(F12B, x + 6, y + F12B.ascent - 2, line, th::stamp);
-    y += F12B.line + 4;
+    cv.text(FLabel, x + 6, y + FLabel.ascent - 2, line, th::stamp);
+    y += FLabel.line + 4;
   }
   if (s.form >= (uint8_t)Form::LEGEND) {
     label("WHEN IT IS READY");
-    y = cv.textWrap(F14, x, y + F14.ascent, w,
+    y = cv.textWrap(FBody, x, y + FBody.ascent, w,
                     s.restless ? "Something out there is calling. You can let it go, and it will leave you a souvenir."
                                : "Adults can be released into the fog. Nothing is lost: the photos stay here.",
                     th::ink, 1);
@@ -425,22 +428,22 @@ void App::drawMore() {
   cv.clip(0, L::CONTENT_Y, gfx::W, gfx::H - L::CONTENT_Y);
   int y = L::CONTENT_Y + 6 - scroll_[3];
   float p = Pet::moonPhase(now_);
-  cv.text(F16H, 8, y + F16H.ascent, "Almanac", th::moon);
+  cv.text(FHead, 8, y + FHead.ascent, "Almanac", th::moon);
   cv.moon(26, y + 48, 17, p, th::moon, th::line);
   int tx = 50;
-  cv.text(F12B, tx, y + 34, phaseName(p), th::text);
+  cv.text(FLabel, tx, y + 34, phaseName(p), th::text);
   float toFull = p <= 0.5f ? (0.5f - p) : (1.5f - p);
   int nights = (int)(toFull * 29.53f + 0.5f);
   char buf[48];
   if (Pet::nearFullMoon(now_, 18)) std::snprintf(buf, sizeof(buf), "Full tonight!");
   else std::snprintf(buf, sizeof(buf), "Full in %d nights", nights);
-  cv.text(F12B, tx, y + 50, buf, th::lantern);
-  cv.text(F12B, tx, y + 66, "(grows faster)", th::fog);
-  cv.text(F12B, 8, y + 88, "Wakes 6 pm", th::text);
-  cv.text(F12B, 8, y + 102, "Sleeps 7 am", th::text);
-  cv.text(F12B, 8, y + 116, "Evolves 8 to 11 pm", th::text);
-  cv.text(F12B, 8, y + 130, "Quiet 11 pm to 7 am", th::text);
-  cv.text(F12B, 8, y + 144, P.clockVerified() ? "Clock synced" : "Clock: set it below", P.clockVerified() ? th::moss : th::ember);
+  cv.text(FLabel, tx, y + 50, buf, th::lantern);
+  cv.text(FLabel, tx, y + 66, "(grows faster)", th::fog);
+  cv.text(FLabel, 8, y + 88, "Wakes 6 pm", th::text);
+  cv.text(FLabel, 8, y + 102, "Sleeps 7 am", th::text);
+  cv.text(FLabel, 8, y + 116, "Evolves 8 to 11 pm", th::text);
+  cv.text(FLabel, 8, y + 130, "Quiet 11 pm to 7 am", th::text);
+  cv.text(FLabel, 8, y + 144, P.clockVerified() ? "Clock synced" : "Clock: set it below", P.clockVerified() ? th::moss : th::ember);
   (void)s;
   static const char* sounds[3] = {"On", "Chimes only", "Off"};
   static const char* bright[3] = {"Low", "Medium", "High"};
@@ -453,11 +456,11 @@ void App::drawMore() {
     int ry = y0 + i * (L::ROW_H + L::ROW_GAP);
     cv.fillRound(L::ROW_X, ry, L::ROW_W, L::ROW_H, 5, th::panel);
     cv.roundRect(L::ROW_X, ry, L::ROW_W, L::ROW_H, 5, th::line, 2);
-    cv.text(F14B, L::ROW_X + 10, ry + 21, titles[i], th::text);
-    cv.text(F12B, L::ROW_X + 10, ry + 39, subs[i], i == 5 ? th::ember : th::lantern);
+    cv.text(FBodyB, L::ROW_X + 10, ry + 21, titles[i], th::text);
+    cv.text(FLabel, L::ROW_X + 10, ry + 39, subs[i], i == 5 ? th::ember : th::lantern);
   }
   int yend = y0 + 6 * (L::ROW_H + L::ROW_GAP) + 6;
-  yend = cv.textWrap(F12B, 8, yend + F12B.ascent, 156,
+  yend = cv.textWrap(FLabel, 8, yend + FLabel.ascent, 156,
                      "CRYPTLINGS. A field journal for creatures nobody believes in. Be kind to them.", th::dim, 1);
   contentH_[3] = yend + 8 + scroll_[3] - L::CONTENT_Y;
 }
@@ -504,14 +507,14 @@ void App::drawBoot() {
     int k = chars < len ? chars : len;
     std::memcpy(buf, lines[i], k);
     buf[k] = 0;
-    cv.text(F12B, 14, y, buf, th::ink);
+    cv.text(FLabel, 14, y, buf, th::ink);
     chars -= len + 4;
     y += 17;
   }
   if (chars > 0) {
     cv.rect(40, 248, 92, 22, th::stampBlue, 2);
-    cv.textCenter(F12B, 86, 263, hasPet ? "CASE OPEN" : "UNVERIFIED", th::stampBlue);
-    if ((ms_ / 600) % 2) cv.textCenter(F16P, 86, 290, "Tap to open the file", th::sepia);
+    cv.textCenter(FLabel, 86, 263, hasPet ? "CASE OPEN" : "UNVERIFIED", th::stampBlue);
+    if ((ms_ / 600) % 2) cv.textCenter(FHand, 86, 290, "Tap to open the file", th::sepia);
   }
 }
 
@@ -522,25 +525,25 @@ void App::drawTray() {
   const SpeciesText& T = SPECIES_TEXT[trayPick_];
   char k[24];
   std::snprintf(k, sizeof(k), "CASE FILE #%04u", set_.caseNo);
-  cv.textCenter(F12B, 86, 32, k, th::fog);
-  cv.textCenter(F24, 86, 56, "Specimen tray", th::moon);
+  cv.textCenter(FLabel, 86, 32, k, th::fog);
+  cv.textCenter(FTitle, 86, 56, "Specimen tray", th::moon);
   // nest glow
   cv.fillEllipse(86, L::EGG_Y + 96, 46, 9, th::lantern, 40);
   int bob = (ms_ / 500) % 2 ? -1 : 0;
   cv.sprite(*creatureSprite(trayPick_, 0, (ms_ / 3000) % 3 == 0 ? 0 : 1), 36, L::EGG_Y + bob);
-  cv.textCenter(F24, 22, L::ARROW_Y + 28, "<", th::lantern);
-  cv.textCenter(F24, 150, L::ARROW_Y + 28, ">", th::lantern);
+  cv.textCenter(FTitle, 22, L::ARROW_Y + 28, "<", th::lantern);
+  cv.textCenter(FTitle, 150, L::ARROW_Y + 28, ">", th::lantern);
   for (int i = 0; i < 4; ++i) cv.fillCircle(68 + i * 12, 176, 2, i == trayPick_ ? th::lantern : th::line);
-  cv.textCenter(F16H, 86, 196, T.name, th::text);
+  cv.textCenter(FHead, 86, 196, T.name, th::text);
   if (pet_.state().raisedMask & (1u << trayPick_)) {
     cv.fillRectA(110, 100, 56, 16, th::manila, 220);
-    cv.text(F12B, 113, 112, "SEEN", th::stamp);
+    cv.text(FLabel, 113, 112, "SEEN", th::stamp);
   }
   cv.clip(0, L::TRAY_BIO_Y, gfx::W, L::TRAY_BIO_H);
   int y = L::TRAY_BIO_Y - trayScroll_;
-  y = cv.textWrap(F16P, 8, y + F16P.ascent, 156, T.eggHint, th::lantern, 0);
-  y = cv.textWrap(F12B, 8, y + F12B.ascent, 156, T.quirk, th::fog, 1);
-  y = cv.textWrap(F12B, 8, y + F12B.ascent + 2, 156, T.bio, th::text, 1);
+  y = cv.textWrap(FHand, 8, y + FHand.ascent, 156, T.eggHint, th::lantern, 0);
+  y = cv.textWrap(FLabel, 8, y + FLabel.ascent, 156, T.quirk, th::fog, 1);
+  y = cv.textWrap(FLabel, 8, y + FLabel.ascent + 2, 156, T.bio, th::text, 1);
   cv.noClip();
   cv.fillRectA(0, L::TRAY_BIO_Y + L::TRAY_BIO_H - 6, gfx::W, 6, th::bg, 160);
   drawHoldButton(L::HOLD_X, L::HOLD_Y, L::HOLD_W, L::HOLD_H, "HOLD TO INCUBATE", 1);
@@ -550,12 +553,12 @@ void App::drawName() {
   cv.fill(th::bg);
   drawStatus();
   const SpeciesText& T = SPECIES_TEXT[pet_.state().species & 3];
-  cv.textCenter(F12B, 86, 34, "NAME THE SPECIMEN", th::fog);
+  cv.textCenter(FLabel, 86, 34, "NAME THE SPECIMEN", th::fog);
   cv.fillEllipse(86, 158, 46, 9, th::lantern, 40);
   cv.sprite(*creatureSprite(pet_.state().species, 0, 0), 36, 60 + ((ms_ / 500) % 2 ? -1 : 0));
-  cv.textCenter(F24, 86, 200, T.names[nameIdx_ % 6], th::moon);
-  cv.textCenter(F12B, 86, 222, "Written on the egg", th::dim);
-  cv.textCenter(F12B, 86, 238, "in pencil. Lightly.", th::dim);
+  cv.textCenter(FTitle, 86, 200, T.names[nameIdx_ % 6], th::moon);
+  cv.textCenter(FLabel, 86, 222, "Written on the egg", th::dim);
+  cv.textCenter(FLabel, 86, 238, "in pencil. Lightly.", th::dim);
   drawButton(L::BTN1_X, L::BTN_Y, L::BTN_W, L::BTN_H, "ANOTHER", false);
   drawButton(L::BTN2_X, L::BTN_Y, L::BTN_W, L::BTN_H, "USE IT", true);
 }
@@ -587,11 +590,11 @@ void App::drawOverlay() {
         std::snprintf(w, sizeof(w), "%s", STAGE_NAME[revealForm_]);
         upper(w);
         // Blackletter capitals are hard to read, so stamps use Grenze (Brief A8 Q6).
-        int ww = gfx::Canvas::textWidth(F16H, w) + 20;
+        int ww = gfx::Canvas::textWidth(FHead, w) + 20;
         if (ww > 136) ww = 136;
         int sx = 86 - ww / 2, sy = py + 140;
         cv.rect(sx, sy, ww, 26, th::stamp, 3);
-        cv.textCenter(F16H, 86, sy + 19, w, th::stamp);
+        cv.textCenter(FHead, 86, sy + 19, w, th::stamp);
       }
       const char* cap = "";
       char cb[64];
@@ -599,8 +602,8 @@ void App::drawOverlay() {
       else if (revealForm_ == (uint8_t)Form::BLURRY) cap = "Still yours. Still out there.";
       else if (revealForm_ == (uint8_t)Form::HOAX) cap = "Debunked. Lovingly.";
       else { std::snprintf(cb, sizeof(cb), "Now a %s.", STAGE_NAME[revealForm_]); cap = cb; }
-      if (t <= 2600) cv.textCenter(F16P, 86, py + 160, "Developing...", th::sepia);
-      cv.textCenter(F16P, 86, py + 194, cap, th::moon);
+      if (t <= 2600) cv.textCenter(FHand, 86, py + 160, "Developing...", th::sepia);
+      cv.textCenter(FHand, 86, py + 194, cap, th::moon);
       if (revealForm_ >= (uint8_t)Form::LEGEND && t > 2600) {
         float careAvg = s.weight > 0 ? s.careW / s.weight : pet_.careNow();
         float mystAvg = s.weight > 0 ? s.mystW / s.weight : s.stat[3];
@@ -609,35 +612,35 @@ void App::drawOverlay() {
         std::snprintf(l1, sizeof(l1), "Care: %d of 5 lanterns", lan);
         std::snprintf(l2, sizeof(l2), "Stayed hidden: %s", mystAvg > 65 ? "YES" : mystAvg > 40 ? "MOSTLY" : "NO");
         std::snprintf(l3, sizeof(l3), "Rough nights: %d h", (int)s.neglectHours);
-        cv.text(F12B, 12, 246, l1, th::text);
-        cv.text(F12B, 12, 262, l2, th::text);
-        cv.text(F12B, 12, 278, l3, th::text);
+        cv.text(FLabel, 12, 246, l1, th::text);
+        cv.text(FLabel, 12, 262, l2, th::text);
+        cv.text(FLabel, 12, 278, l3, th::text);
         if (revealForm_ == (uint8_t)Form::HOAX)
-          cv.textWrap(F12B, 12, 294, 150, SPECIES_TEXT[s.species & 3].hoax, th::lantern, 1, 1);
+          cv.textWrap(FLabel, 12, 294, 150, SPECIES_TEXT[s.species & 3].hoax, th::lantern, 1, 1);
       }
-      if (t > 3000) cv.textCenter(F12B, 86, 312, "Tap to continue", th::dim);
+      if (t > 3000) cv.textCenter(FLabel, 86, 312, "Tap to continue", th::dim);
       break;
     }
     case Ov::HIKER: {
       drawPaperCard(10, 60, 152, 200);
-      cv.textCenter(F24, 86, 92, "A hiker!", th::stamp);
-      cv.textWrap(F14, 18, 116, 138, "Someone with a camera is coming up the trail.", th::ink, 1, 0, true);
+      cv.textCenter(FTitle, 86, 92, "A hiker!", th::stamp);
+      cv.textWrap(FBody, 18, 116, 138, "Someone with a camera is coming up the trail.", th::ink, 1, 0, true);
       int left = 10000 - (int)(ms_ - hikerShownMs_);
       if (left < 0) left = 0;
       cv.fillRect(18, 180, 136, 6, th::manila);
       cv.fillRect(18, 180, 136 * left / 10000, 6, th::ember);
       cv.fillRound(16, 196, 140, 52, 6, th::lantern);
       cv.roundRect(16, 196, 140, 52, 6, th::ink, 2);
-      cv.textCenter(F16H, 86, 228, "HIDE!", th::ink);
+      cv.textCenter(FHead, 86, 228, "HIDE!", th::ink);
       break;
     }
     case Ov::BURROW: {
       cv.fill(th::bg);
-      cv.textCenter(F24, 86, 50, "Hibernating", th::moon);
-      cv.textWrap(F14, 12, 76, 148, "Left alone for days, it curled up in a burrow to wait for you.", th::text, 1, 0, true);
+      cv.textCenter(FTitle, 86, 50, "Hibernating", th::moon);
+      cv.textWrap(FBody, 12, 76, 148, "Left alone for days, it curled up in a burrow to wait for you.", th::text, 1, 0, true);
       cv.fillEllipse(86, 186, 56, 22, gfx::hex(0x3A2E22));
       cv.fillEllipse(86, 180, 44, 16, gfx::hex(0x4A3A2A));
-      cv.text(F16P, 116, 160 - (int)((ms_ / 300) % 8), "z", th::moon);
+      cv.text(FHand, 116, 160 - (int)((ms_ / 300) % 8), "z", th::moon);
       drawHoldButton(16, 226, 140, 52, "HOLD TO DIG OUT", 3);
       break;
     }
@@ -645,26 +648,26 @@ void App::drawOverlay() {
       cv.fill(th::bg);
       for (int i = 0; i < 5; ++i)
         cv.fillEllipse(30 + i * 30, 150 + (i % 2) * 20, 50, 10, th::fog, 50);
-      cv.textCenter(F24, 86, 60, "Case closed", th::moon);
-      cv.textWrap(F14, 12, 100, 148, farewell_, th::text, 2, 0, true);
-      cv.textCenter(F12B, 86, 300, "Tap for a new egg tray", th::dim);
+      cv.textCenter(FTitle, 86, 60, "Case closed", th::moon);
+      cv.textWrap(FBody, 12, 100, 148, farewell_, th::text, 2, 0, true);
+      cv.textCenter(FLabel, 86, 300, "Tap for a new egg tray", th::dim);
       break;
     }
     case Ov::PANTS: {
-      cv.textCenter(F24, 86, 66, "Tonight's pants", th::moon);
+      cv.textCenter(FTitle, 86, 66, "Tonight's pants", th::moon);
       for (int i = 0; i < 4; ++i) {
         int y = 84 + i * 52;
         cv.fillRound(16, y, 140, 46, 5, th::paper);
         cv.roundRect(16, y, 140, 46, 5, th::ink, 2);
         cv.sprite(*iconSprite(Icon::PANTS), 26, y + 15);
-        cv.text(F14B, 50, y + 28, PANTS[i], th::ink);
+        cv.text(FBodyB, 50, y + 28, PANTS[i], th::ink);
       }
-      cv.textCenter(F12B, 86, 312, "Never mind", th::fog);
+      cv.textCenter(FLabel, 86, 312, "Never mind", th::fog);
       break;
     }
     case Ov::CLOCK: {
       drawPaperCard(6, 44, 160, 272);
-      cv.textCenter(F16H, 86, 66, "Set the clock", th::ink);
+      cv.textCenter(FHead, 86, 66, "Set the clock", th::ink);
       int64_t l = (int64_t)now_ + P.utcOffset(now_);
       int sec = (int)((l % 86400 + 86400) % 86400);
       int h = sec / 3600, m = (sec / 60) % 60;
@@ -678,30 +681,206 @@ void App::drawOverlay() {
       unsigned mo = mp < 10 ? mp + 3 : mp - 9;
       char buf[32];
       std::snprintf(buf, sizeof(buf), "%u/%u  %d:%02d %s", mo, d, h % 12 == 0 ? 12 : h % 12, m, h < 12 ? "AM" : "PM");
-      cv.textCenter(F14B, 86, 92, buf, th::ink);
-      cv.textCenter(F12B, 86, 110, P.clockVerified() ? "Synced online" : "Not synced", th::sepia);
+      cv.textCenter(FBodyB, 86, 92, buf, th::ink);
+      cv.textCenter(FLabel, 86, 110, P.clockVerified() ? "Synced online" : "Not synced", th::sepia);
       static const char* lab[6] = {"+1 hour", "-1 hour", "+10 min", "-10 min", "+1 day", "-1 day"};
       for (int i = 0; i < 6; ++i) {
         int bx = 12 + (i % 2) * 76, by = 120 + (i / 2) * 50;
         cv.fillRound(bx, by, 72, 44, 5, th::manila);
         cv.roundRect(bx, by, 72, 44, 5, th::ink, 2);
-        cv.textCenter(F12B, bx + 36, by + 27, lab[i], th::ink);
+        cv.textCenter(FLabel, bx + 36, by + 27, lab[i], th::ink);
       }
       drawButton(12, 274, 148, 40, "DONE", true);
       break;
     }
     case Ov::RESULT:
       drawPaperCard(10, 90, 152, 140);
-      cv.textWrap(F14, 18, 114, 136, farewell_, th::ink, 2, 0, true);
-      cv.textCenter(F12B, 86, 220, "Tap to continue", th::sepia);
+      cv.textWrap(FBody, 18, 114, 136, farewell_, th::ink, 2, 0, true);
+      cv.textCenter(FLabel, 86, 220, "Tap to continue", th::sepia);
       break;
     case Ov::CONFIRM_RESET:
       drawPaperCard(10, 70, 152, 240);
-      cv.textCenter(F24, 86, 102, "Start over?", th::stamp);
-      cv.textWrap(F14, 18, 128, 136, "Your cryptid goes back to the woods with no souvenir. The evidence stays.", th::ink, 1, 0, true);
+      cv.textCenter(FTitle, 86, 102, "Start over?", th::stamp);
+      cv.textWrap(FBody, 18, 128, 136, "Your cryptid goes back to the woods with no souvenir. The evidence stays.", th::ink, 1, 0, true);
       drawHoldButton(16, 200, 140, 52, "HOLD TO RESET", 5);
-      cv.textCenter(F14B, 86, 288, "Cancel", th::ink);
+      cv.textCenter(FBodyB, 86, 288, "Cancel", th::ink);
       break;
     default: break;
   }
 }
+
+// ---- minigames -------------------------------------------------------------------
+void App::drawGame() {
+  const State& s = pet_.state();
+  const SpeciesText& T = SPECIES_TEXT[s.species & 3];
+  uint32_t t = ms_ - g_.start;
+  float ts = t / 1000.0f;
+  int form = formIdx();
+  if (form == 0) form = 1;
+  cv.fill(th::bg);
+  // header
+  cv.fillRect(0, 0, gfx::W, 40, th::panel);
+  cv.text(FHead, 6, 18, T.game, th::moon);
+  char sc[32];
+  if (g_.type == Game::WALTZ) std::snprintf(sc, sizeof(sc), "Glow %d%%", g_.score);
+  else if (g_.type == Game::STROLL) std::snprintf(sc, sizeof(sc), "Steps %d  Wobble %d", g_.steps, g_.wobbles);
+  else std::snprintf(sc, sizeof(sc), "Got %d  Oops %d", g_.score, g_.misses);
+  cv.text(FLabel, 6, 34, sc, th::lantern);
+  cv.text(FLabel, 136, 16, "QUIT", th::dim);
+  int left = (int)(App::GAME_MS - (t > App::GAME_MS ? App::GAME_MS : t));
+  cv.fillRect(0, 38, gfx::W * left / (int)App::GAME_MS, 2, th::lantern);
+
+  switch (g_.type) {
+    case Game::WALTZ: {
+      cv.vgradient(0, 40, gfx::W, 280, gfx::hex(0x070A14), gfx::hex(0x18213A), 6);
+      int gx = (int)(86 + 46 * std::sin(ts * 0.9f)), gy = (int)(180 + 70 * std::sin(ts * 0.6f + 1.0f));
+      cv.fillCircle(gx, gy, 44, th::lantern, 30);
+      cv.fillCircle(gx, gy, 36, th::lantern, 40);
+      cv.circle(gx, gy, 36, th::lantern);
+      cv.fillCircle(gx, gy, 12, gfx::hex(0xF5D08A));
+      cv.circle(gx, gy, 12, th::ember);
+      cv.sprite(*creatureSprite(s.species, form, g_.dizzy > 0.5f ? 2 : 0), (int)g_.px - 50, (int)g_.py - 60);
+      cv.fillRect(6, 308, 160, 6, th::panel);
+      cv.fillRect(6, 308, (int)(160 * (g_.dizzy > 1 ? 1 : g_.dizzy)), 6, th::ember);
+      cv.text(FLabel, 6, 304, "Stay in the glow.", th::fog);
+      break;
+    }
+    case Game::FORAGE: {
+      cv.vgradient(0, 40, gfx::W, 280, gfx::hex(0x0D1424), gfx::hex(0x1C2A20), 5);
+      for (int i = 0; i < 6; ++i) {
+        int x = i % 2 == 0 ? 46 : 126, y = 96 + (i / 2) * 72;
+        cv.fillEllipse(x, y + 14, 36, 22, gfx::hex(0x1C3A24));
+        cv.fillEllipse(x - 10, y + 6, 18, 14, gfx::hex(0x245030));
+        cv.fillEllipse(x + 12, y + 8, 18, 14, gfx::hex(0x2A5A36));
+      }
+      for (auto& o : g_.obj) {
+        if (!o.alive) continue;
+        if (o.kind == 0) { cv.fillCircle(o.x - 5, o.y, 7, gfx::hex(0x6B5BA8)); cv.fillCircle(o.x + 5, o.y + 2, 7, gfx::hex(0x5A4A98)); }
+        else if (o.kind == 1) { cv.fillEllipse(o.x, o.y - 3, 12, 8, th::ember); cv.fillRect(o.x - 3, o.y, 6, 10, th::paper); cv.fillCircle(o.x - 4, o.y - 5, 2, th::paper); }
+        else { cv.fillEllipse(o.x, o.y, 8, 12, gfx::hex(0x7A5A3A)); for (int k = -8; k < 10; k += 5) cv.hline(o.x - 6, o.y + k, 12, gfx::hex(0x4A3422)); }
+      }
+      cv.text(FLabel, 6, 314, "Snacks! No pinecones.", th::fog);
+      break;
+    }
+    case Game::HOP: {
+      cv.vgradient(0, 40, gfx::W, 150, gfx::hex(0x070A14), gfx::hex(0x18213A), 5);
+      cv.fillRect(0, 190, gfx::W, 130, gfx::hex(0x1B3A40));
+      for (int x = 0; x < gfx::W; x += 12) cv.hline(x + (int)(ts * 20) % 12, 192, 6, th::loch);
+      cv.sprite(*creatureSprite(s.species, form, 0), -10, 120, gfx::Tint(), 2);
+      for (auto& o : g_.obj) {
+        if (!o.alive) continue;
+        if (o.kind) {
+          cv.fillRect(o.x - 20, o.y + 2, 40, 8, gfx::hex(0x6B4A2A));
+          cv.fillRect(o.x - 14, o.y - 6, 28, 8, gfx::hex(0x8A6A4A));
+          cv.vline(o.x, o.y - 22, 16, th::paper);
+        } else {
+          cv.circle(o.x, o.y, 9, th::moon);
+          cv.fillCircle(o.x - 3, o.y - 3, 2, th::moon);
+        }
+      }
+      cv.text(FLabel, 6, 314, "Bubbles. Not boats.", th::fog);
+      break;
+    }
+    case Game::STROLL: {
+      cv.vgradient(0, 40, gfx::W, 200, gfx::hex(0x070A14), gfx::hex(0x18213A), 5);
+      cv.fillRect(0, 240, gfx::W, 80, gfx::hex(0x1D211F));
+      for (int i = 0; i < 6; ++i) {
+        int x = ((i * 40 - (g_.steps * 8)) % 240 + 240) % 240 - 30;
+        cv.fillRect(x, 248, 24, 3, gfx::hex(0x3A403A));
+      }
+      int sway = (g_.steps % 2) ? 2 : -2;
+      cv.sprite(*creatureSprite(s.species, form, g_.wobbles > 3 ? 2 : 0), 36 + sway, 150);
+      cv.fillRectA(0, 40, 86, 280, th::moon, ptr_.down && ptr_.x < 86 ? 30 : 8);
+      cv.fillRectA(86, 40, 86, 280, th::moon, ptr_.down && ptr_.x >= 86 ? 30 : 8);
+      cv.textCenter(FBodyB, 43, 290, "LEFT", th::fog);
+      cv.textCenter(FBodyB, 129, 290, "RIGHT", th::fog);
+      cv.text(FLabel, 6, 314, "Left, right. Calmly.", th::fog);
+      break;
+    }
+  }
+}
+
+// ---- hit testing (mirrors the drawing above) ---------------------------------------
+namespace {
+bool in(int x, int y, int rx, int ry, int rw, int rh) {
+  return x >= rx && x < rx + rw && y >= ry && y < ry + rh;
+}
+}  // namespace
+
+Hit App::hitAt(int x, int y) const {
+  if (scr_ == Scr::GAME) return {(uint8_t)(y < L::G_TOP && x > 120 ? HIT_QUIT : HIT_NONE), 0};
+  if (ov_ != Ov::NONE) {
+    switch (ov_) {
+      case Ov::BURROW: if (in(x, y, 16, 226, 140, 52)) return {HIT_HOLD_DIG, 0}; break;
+      case Ov::CONFIRM_RESET:
+        if (in(x, y, 16, 200, 140, 52)) return {HIT_HOLD_RESET, 0};
+        if (in(x, y, 16, 262, 140, 40)) return {HIT_CANCEL, 0};
+        break;
+      case Ov::HIKER: if (in(x, y, 16, 196, 140, 52)) return {HIT_HIDE, 0}; break;
+      case Ov::PANTS:
+        for (int i = 0; i < 4; ++i) if (in(x, y, 16, 84 + i * 52, 140, 46)) return {HIT_PANTS, (int8_t)i};
+        if (in(x, y, 16, 296, 140, 24)) return {HIT_CANCEL, 0};
+        break;
+      case Ov::CLOCK:
+        for (int i = 0; i < 6; ++i) {
+          int bx = 12 + (i % 2) * 76, by = 120 + (i / 2) * 50;
+          if (in(x, y, bx, by, 72, 44)) return {HIT_CLOCK, (int8_t)i};
+        }
+        if (in(x, y, 12, 274, 148, 40)) return {HIT_DONE, 0};
+        break;
+      default: break;
+    }
+    return {HIT_ANY, 0};
+  }
+  switch (scr_) {
+    case Scr::BOOT: return {HIT_ANY, 0};
+    case Scr::TRAY:
+      if (in(x, y, L::HOLD_X, L::HOLD_Y, L::HOLD_W, L::HOLD_H)) return {HIT_HOLD_INCUBATE, 0};
+      if (in(x, y, 0, L::ARROW_Y, L::ARROW_W, 44)) return {HIT_PREV, 0};
+      if (in(x, y, gfx::W - L::ARROW_W, L::ARROW_Y, L::ARROW_W, 44)) return {HIT_NEXT, 0};
+      if (in(x, y, 0, L::TRAY_BIO_Y, gfx::W, L::TRAY_BIO_H)) return {HIT_TRAY_TEXT, 0};
+      return {HIT_NONE, 0};
+    case Scr::NAME:
+      if (in(x, y, L::BTN1_X, L::BTN_Y, L::BTN_W, L::BTN_H)) return {HIT_ANOTHER, 0};
+      if (in(x, y, L::BTN2_X, L::BTN_Y, L::BTN_W, L::BTN_H)) return {HIT_USE, 0};
+      return {HIT_NONE, 0};
+    default: break;
+  }
+  if (scr_ != Scr::MAIN) return {HIT_NONE, 0};
+  if (y < L::TAB_HIT_H) {
+    int t = (x - L::TAB_X0) / (L::TAB_W + L::TAB_GAP);
+    if (t >= 0 && t < 4) return {HIT_TAB, (int8_t)t};
+  }
+  switch (tab_) {
+    case Tab::DEN:
+      if (in(x, y, L::PHOTO_X, L::PHOTO_Y, L::PHOTO_W, L::PHOTO_H)) return {HIT_PET, 0};
+      if (in(x, y, L::BTN1_X, L::BTN_Y, L::BTN_W, L::BTN_H)) return {HIT_BEST, 0};
+      if (in(x, y, L::BTN2_X, L::BTN_Y, L::BTN_W, L::BTN_H)) return {HIT_CARE, 0};
+      break;
+    case Tab::CARE: {
+      int ids[12];
+      int n = careRows(ids, 12);
+      for (int i = 0; i < n; ++i) {
+        int ry = L::CONTENT_Y + 4 + i * (L::ROW_H + L::ROW_GAP) - scroll_[1];
+        if (in(x, y, L::ROW_X, ry, L::ROW_W, L::ROW_H) && y >= L::CONTENT_Y) return {HIT_ROW, (int8_t)i};
+      }
+      break;
+    }
+    case Tab::FILE:
+      if (pet_.state().form >= (uint8_t)Form::LEGEND) {
+        int ry = contentH_[2] - 60 + L::CONTENT_Y - scroll_[2];
+        if (in(x, y, 6, ry, 160, 50)) return {HIT_HOLD_RELEASE, 0};
+      }
+      break;
+    case Tab::MORE: {
+      int y0 = L::CONTENT_Y + 160 - scroll_[3];
+      for (int i = 0; i < 6; ++i) {
+        int ry = y0 + i * (L::ROW_H + L::ROW_GAP);
+        if (in(x, y, L::ROW_X, ry, L::ROW_W, L::ROW_H) && y >= L::CONTENT_Y) return {HIT_ROW, (int8_t)i};
+      }
+      break;
+    }
+  }
+  return {HIT_NONE, 0};
+}
+#endif  // !CRYPT_ROUND

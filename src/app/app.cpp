@@ -2,6 +2,7 @@
 // Drawing lives in app_draw.cpp, minigames in app_game.cpp.
 #include "app.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <initializer_list>
@@ -23,16 +24,12 @@ const Note DUSK[]    = {{440, 200}, {523, 200}, {659, 400}};
 const Note DAWN[]    = {{659, 200}, {523, 200}, {440, 400}};
 const Note BLIP[]    = {{1800, 15}};
 const Note RELEASE[] = {{880, 160}, {784, 160}, {659, 160}, {587, 160}, {523, 320}};
-struct M { const Note* n; int len; };
-const M MOTIFS[] = {{HOOT, 3}, {CHIME, 2}, {EVOLVE, 5}, {HATCH, 7}, {SHUTTER, 3},
-                    {DUSK, 3}, {DAWN, 3}, {BLIP, 1}, {RELEASE, 5}};
+struct M { const Note* n; int len; uint16_t vibe; };   // vibe: ms of vibration (0 none)
+const M MOTIFS[] = {{HOOT, 3, 200}, {CHIME, 2, 0}, {EVOLVE, 5, 400}, {HATCH, 7, 300}, {SHUTTER, 3, 250},
+                    {DUSK, 3, 0}, {DAWN, 3, 0}, {BLIP, 1, 0}, {RELEASE, 5, 0}};
 
 const uint32_t TIMEOUTS[3] = {30000, 60000, 120000};
 const uint8_t BRIGHT[3] = {70, 150, 255};
-
-bool in(int x, int y, int rx, int ry, int rw, int rh) {
-  return x >= rx && x < rx + rw && y >= ry && y < ry + rh;
-}
 }  // namespace
 
 // Hold targets
@@ -110,6 +107,60 @@ void App::playMotif(int id, bool chime) {
     ++soundsToday_;
   }
   P.play(MOTIFS[id].n, MOTIFS[id].len);
+  if (MOTIFS[id].vibe) P.vibrate(MOTIFS[id].vibe);
+}
+
+// Motion sensor (StopWatch): read once per update.
+//  - Turned face down for 1.5 s turns the screen off (outside games and the hiker alert).
+//  - During a walk, real steps count alongside taps.
+//  - In the Lamplight Waltz, tilting steers Mothman when no finger is down.
+void App::motionTick(uint32_t dt) {
+  float x, y, z;
+  hasMotion_ = P.accel(x, y, z);
+  if (!hasMotion_) return;
+  acc_[0] = x; acc_[1] = y; acc_[2] = z;
+  if (!screenOn_) { faceDownMs_ = 0; return; }
+
+  bool canNap = scr_ != Scr::GAME && ov_ != Ov::HIKER && ov_ != Ov::REVEAL && !ptr_.down;
+  // Only a real flip counts: face up within the last 5 s, then face down. If
+  // the sensor's axes were ever wrong (always reading face down), it never naps.
+  if (z > 0.6f) faceUpMs_ = ms_;
+  bool flipped = faceDownMs_ > 0 || (faceUpMs_ && ms_ - faceUpMs_ < 5000);
+  if (z < -0.75f && canNap && flipped) {
+    faceDownMs_ += dt;
+    if (faceDownMs_ > 1500) { faceDownMs_ = 0; sleepScreen(); return; }
+  } else {
+    faceDownMs_ = 0;
+  }
+
+  if (scr_ != Scr::GAME) return;
+  if (g_.type == Game::STROLL) {
+    // A step is a bump in total acceleration above its running average.
+    float m = std::sqrt(x * x + y * y + z * z);
+    accAvg_ += (m - accAvg_) * 0.05f;
+    float d = m - accAvg_;
+    if (!stepHigh_ && d > 0.15f && ms_ - lastStepMs_ > 300) {
+      stepHigh_ = true;
+      lastStepMs_ = ms_;
+      ++g_.steps; ++g_.score; ++g_.realSteps;
+      dirty_ = true;
+    } else if (stepHigh_ && d < 0.05f) {
+      stepHigh_ = false;
+    }
+  } else if (g_.type == Game::WALTZ && !ptr_.down) {
+    const float k = 0.35f;   // px per ms per g
+    g_.px -= x * k * dt;
+    g_.py -= y * k * dt;
+#if CRYPT_ROUND
+    float dx = g_.px - L::CX, dy = g_.py - L::CY, r = std::sqrt(dx * dx + dy * dy);
+    if (r > 200) { g_.px = L::CX + dx * 200 / r; g_.py = L::CY + dy * 200 / r; }
+#else
+    if (g_.px < 0) g_.px = 0;
+    if (g_.px > gfx::W) g_.px = gfx::W;
+    if (g_.py < L::G_TOP) g_.py = L::G_TOP;
+    if (g_.py > gfx::H) g_.py = gfx::H;
+#endif
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -321,15 +372,13 @@ bool App::update(uint32_t ms, const TouchIn& t) {
     holdId_ = H_NONE;
     if (!ptr_.swallow) {
       // What is under the finger that responds to a hold?
-      if (ov_ == Ov::BURROW && in(t.x, t.y, 16, 226, 140, 52)) { holdId_ = H_DIG; holdNeed_ = 1500; }
-      else if (ov_ == Ov::CONFIRM_RESET && in(t.x, t.y, 16, 200, 140, 52)) { holdId_ = H_RESET; holdNeed_ = 2000; }
-      else if (ov_ == Ov::NONE) {
-        if (scr_ == Scr::TRAY && in(t.x, t.y, L::HOLD_X, L::HOLD_Y, L::HOLD_W, L::HOLD_H)) { holdId_ = H_INCUBATE; holdNeed_ = 2000; }
-        else if (scr_ == Scr::MAIN && tab_ == Tab::DEN && in(t.x, t.y, L::PHOTO_X, L::PHOTO_Y, L::PHOTO_W, L::PHOTO_H)) { holdId_ = H_PET; holdNeed_ = 800; }
-        else if (scr_ == Scr::MAIN && tab_ == Tab::FILE && pet_.state().form >= (uint8_t)Form::LEGEND) {
-          int ry = contentH_[2] - 60 + L::CONTENT_Y - scroll_[2];
-          if (in(t.x, t.y, 6, ry, 160, 50)) { holdId_ = H_RELEASE; holdNeed_ = 1500; }
-        }
+      switch (hitAt(t.x, t.y).id) {
+        case HIT_HOLD_DIG: holdId_ = H_DIG; holdNeed_ = 1500; break;
+        case HIT_HOLD_RESET: holdId_ = H_RESET; holdNeed_ = 2000; break;
+        case HIT_HOLD_INCUBATE: holdId_ = H_INCUBATE; holdNeed_ = 2000; break;
+        case HIT_PET: holdId_ = H_PET; holdNeed_ = 800; break;
+        case HIT_HOLD_RELEASE: holdId_ = H_RELEASE; holdNeed_ = 1500; break;
+        default: break;
       }
     }
     dirty_ = true;
@@ -364,8 +413,7 @@ bool App::update(uint32_t ms, const TouchIn& t) {
     ptr_.down = false;
     if (!ptr_.swallow) {
       int dx = ptr_.x - ptr_.sx, dy = ptr_.y - ptr_.sy;
-      bool startedOnPet = scr_ == Scr::MAIN && tab_ == Tab::DEN && ov_ == Ov::NONE &&
-                          in(ptr_.sx, ptr_.sy, L::PHOTO_X, L::PHOTO_Y, L::PHOTO_W, L::PHOTO_H);
+      bool startedOnPet = hitAt(ptr_.sx, ptr_.sy).id == HIT_PET;
       if (!ptr_.moved && ms - ptr_.t0 < 600) onTap(ptr_.sx, ptr_.sy);
       else if (ptr_.moved && startedOnPet && ptr_.reversals >= 3) act(A_SCRUB);
       else if (ptr_.moved && (dx > 40 || dx < -40) && (dx > 0 ? dx : -dx) > 2 * (dy > 0 ? dy : -dy))
@@ -374,6 +422,16 @@ bool App::update(uint32_t ms, const TouchIn& t) {
     holdId_ = H_NONE;
     holdP_ = 0;
     dirty_ = true;
+  }
+
+  // ---- motion (no-op without a sensor) ----
+  {
+    uint32_t dt = lastUpdateMs_ ? ms - lastUpdateMs_ : 0;
+    lastUpdateMs_ = ms;
+    if (dt > 200) dt = 200;
+    bool wasOn = screenOn_;
+    motionTick(dt);
+    if (wasOn && !screenOn_) return false;   // laid face down: lights out this frame
   }
 
   // ---- game ----
@@ -440,7 +498,7 @@ void App::onSwipe(int dir) {
 void App::onDrag(int dx, int dy) {
   (void)dx;
   if (ov_ != Ov::NONE) return;
-  if (scr_ == Scr::TRAY && in(ptr_.sx, ptr_.sy, 0, L::TRAY_BIO_Y, 172, L::TRAY_BIO_H)) {
+  if (scr_ == Scr::TRAY && hitAt(ptr_.sx, ptr_.sy).id == HIT_TRAY_TEXT) {
     trayScroll_ -= dy;
     if (trayScroll_ < 0) trayScroll_ = 0;
     if (trayScroll_ > 400) trayScroll_ = 400;
@@ -450,7 +508,7 @@ void App::onDrag(int dx, int dy) {
   if (scr_ != Scr::MAIN || tab_ == Tab::DEN) return;
   int i = (int)tab_;
   scroll_[i] -= dy;
-  int maxS = contentH_[i] - (320 - L::CONTENT_Y);
+  int maxS = contentH_[i] - L::VIEW_H;
   if (maxS < 0) maxS = 0;
   if (scroll_[i] > maxS) scroll_[i] = maxS;
   if (scroll_[i] < 0) scroll_[i] = 0;
@@ -506,6 +564,7 @@ void App::newPet(int species) {
 // ---------------------------------------------------------------------------
 void App::onTap(int x, int y) {
   if (set_.sound == 0 && screenOn_) P.play(MOTIFS[M_BLIP].n, 1);
+  const Hit h = hitAt(x, y);
 
   // Overlays first.
   if (ov_ != Ov::NONE) {
@@ -514,7 +573,7 @@ void App::onTap(int x, int y) {
         if (ms_ - revealStart_ > 3000) ov_ = Ov::NONE;
         break;
       case Ov::HIKER:
-        if (in(x, y, 16, 196, 140, 52)) {
+        if (h.id == HIT_HIDE) {
           ensureSession();
           pet_.hide(now_);   // resolves the pending hiker as a dodge...
           if (pet_.hikerPending(now_)) pet_.resolveHiker(now_, true);   // ...even if HIDE is on cooldown
@@ -530,25 +589,22 @@ void App::onTap(int x, int y) {
         tab_ = Tab::DEN;
         break;
       case Ov::PANTS:
-        for (int i = 0; i < 4; ++i)
-          if (in(x, y, 16, 84 + i * 52, 140, 46)) {
-            ensureSession();
-            const State& s = pet_.state();
-            bool right = i == s.pantsWanted;
-            Result r = pet_.wearPants(now_, (uint8_t)i);
-            ov_ = Ov::NONE;
-            if (r == Result::COOLDOWN) showToast("One outfit per night. He is firm about this.");
-            else showToast(right ? "The right pants. He does a tiny, dignified twirl." : "Wrong pants. He wears them anyway, quietly disappointed.");
-          }
-        if (in(x, y, 16, 296, 140, 24)) ov_ = Ov::NONE;
+        if (h.id == HIT_PANTS) {
+          int i = h.idx;
+          ensureSession();
+          const State& s = pet_.state();
+          bool right = i == s.pantsWanted;
+          Result r = pet_.wearPants(now_, (uint8_t)i);
+          ov_ = Ov::NONE;
+          if (r == Result::COOLDOWN) showToast("One outfit per night. He is firm about this.");
+          else showToast(right ? "The right pants. He does a tiny, dignified twirl." : "Wrong pants. He wears them anyway, quietly disappointed.");
+        }
+        if (h.id == HIT_CANCEL) ov_ = Ov::NONE;
         break;
       case Ov::CLOCK: {
         static const int32_t steps[6] = {3600, -3600, 600, -600, 86400, -86400};
-        for (int i = 0; i < 6; ++i) {
-          int bx = 12 + (i % 2) * 76, by = 120 + (i / 2) * 50;
-          if (in(x, y, bx, by, 72, 44)) { P.setClock((uint32_t)((int64_t)now_ + steps[i])); now_ = P.unixNow(); }
-        }
-        if (in(x, y, 12, 274, 148, 40)) {
+        if (h.id == HIT_CLOCK) { P.setClock((uint32_t)((int64_t)now_ + steps[h.idx % 6])); now_ = P.unixNow(); }
+        if (h.id == HIT_DONE) {
           ov_ = Ov::NONE;
           // A clock moved forward is time away, not live play: capped catch-up.
           if (set_.hasPet && now_ > pet_.state().lastSeen + 300) {
@@ -565,7 +621,7 @@ void App::onTap(int x, int y) {
         if (ms_ - ovSince_ > 400) ov_ = Ov::NONE;
         break;
       case Ov::CONFIRM_RESET:
-        if (in(x, y, 16, 262, 140, 40)) ov_ = Ov::NONE;
+        if (h.id == HIT_CANCEL) ov_ = Ov::NONE;
         break;
       default: break;
     }
@@ -578,12 +634,12 @@ void App::onTap(int x, int y) {
       if (!set_.bootSeen) { set_.bootSeen = 1; P.saveSettings(set_); }
       return;
     case Scr::TRAY:
-      if (in(x, y, 0, L::ARROW_Y, L::ARROW_W, 44)) { trayPick_ = (trayPick_ + 3) % 4; trayScroll_ = 0; }
-      else if (in(x, y, 172 - L::ARROW_W, L::ARROW_Y, L::ARROW_W, 44)) { trayPick_ = (trayPick_ + 1) % 4; trayScroll_ = 0; }
+      if (h.id == HIT_PREV) { trayPick_ = (trayPick_ + 3) % 4; trayScroll_ = 0; }
+      else if (h.id == HIT_NEXT) { trayPick_ = (trayPick_ + 1) % 4; trayScroll_ = 0; }
       return;
     case Scr::NAME:
-      if (in(x, y, L::BTN1_X, L::BTN_Y, L::BTN_W, L::BTN_H)) nameIdx_ = (nameIdx_ + 1) % 6;
-      if (in(x, y, L::BTN2_X, L::BTN_Y, L::BTN_W, L::BTN_H)) {
+      if (h.id == HIT_ANOTHER) nameIdx_ = (nameIdx_ + 1) % 6;
+      if (h.id == HIT_USE) {
         std::snprintf(set_.name, sizeof(set_.name), "%s", SPECIES_TEXT[pet_.state().species & 3].names[nameIdx_]);
         scr_ = Scr::MAIN;
         tab_ = Tab::DEN;
@@ -597,51 +653,54 @@ void App::onTap(int x, int y) {
       break;
   }
 
-  // Tabs.
-  if (y < L::TAB_HIT_H) {
-    int t = (x - L::TAB_X0) / (L::TAB_W + L::TAB_GAP);
-    if (t >= 0 && t < 4) { tab_ = (Tab)t; return; }
-  }
-
-  if (tab_ == Tab::DEN) {
-    if (in(x, y, L::PHOTO_X, L::PHOTO_Y, L::PHOTO_W, L::PHOTO_H)) {
+  switch (h.id) {
+    case HIT_TAB: tab_ = (Tab)h.idx; return;
+    case HIT_PET:
       ensureSession();
       act((Form)pet_.state().form == Form::EGG ? A_WARM : A_PAT);
-    } else if (in(x, y, L::BTN1_X, L::BTN_Y, L::BTN_W, L::BTN_H)) {
-      act(bestAction());
-    } else if (in(x, y, L::BTN2_X, L::BTN_Y, L::BTN_W, L::BTN_H)) {
-      tab_ = Tab::CARE;
-    }
-    return;
+      return;
+    case HIT_BEST: act(bestAction()); return;
+    case HIT_CARE: tab_ = Tab::CARE; return;
+    case HIT_ROW: break;
+    default: return;
   }
   if (tab_ == Tab::CARE) {
     int ids[12];
     int n = careRows(ids, 12);
-    for (int i = 0; i < n; ++i) {
-      int ry = L::CONTENT_Y + 4 + i * (L::ROW_H + L::ROW_GAP) - scroll_[1];
-      if (in(x, y, L::ROW_X, ry, L::ROW_W, L::ROW_H) && y >= L::CONTENT_Y) { act(ids[i]); return; }
-    }
+    if (h.idx < n) act(ids[h.idx]);
     return;
   }
   if (tab_ == Tab::MORE) {
-    int y0 = L::CONTENT_Y + 160 - scroll_[3];
-    for (int i = 0; i < 6; ++i) {
-      int ry = y0 + i * (L::ROW_H + L::ROW_GAP);
-      if (!in(x, y, L::ROW_X, ry, L::ROW_W, L::ROW_H) || y < L::CONTENT_Y) continue;
-      if (i == 0) set_.sound = (uint8_t)((set_.sound + 1) % 3);
-      if (i == 1) { set_.brightness = (uint8_t)((set_.brightness + 1) % 3); P.backlight(BRIGHT[set_.brightness]); }
-      if (i == 2) set_.timeout = (uint8_t)((set_.timeout + 1) % 3);
-      if (i == 3) {
-        set_.saver = set_.saver ? 0 : 1;
-        showToast(set_.saver ? "Battery saver on. It rests deeply while the screen is off."
-                             : "Battery saver off. Faster to wake, uses more battery.");
-      }
-      if (i == 4) ov_ = Ov::CLOCK;
-      if (i == 5) ov_ = Ov::CONFIRM_RESET;
-      P.saveSettings(set_);
-      return;
+    int i = h.idx;
+    if (i == 0) set_.sound = (uint8_t)((set_.sound + 1) % 3);
+    if (i == 1) { set_.brightness = (uint8_t)((set_.brightness + 1) % 3); P.backlight(BRIGHT[set_.brightness]); }
+    if (i == 2) set_.timeout = (uint8_t)((set_.timeout + 1) % 3);
+    if (i == 3) {
+      set_.saver = set_.saver ? 0 : 1;
+      showToast(set_.saver ? "Battery saver on. It rests deeply while the screen is off."
+                           : "Battery saver off. Faster to wake, uses more battery.");
     }
+    if (i == 4) ov_ = Ov::CLOCK;
+    if (i == 5) ov_ = Ov::CONFIRM_RESET;
+    P.saveSettings(set_);
   }
+}
+
+// Side keys (StopWatch): step through the tabs, or close what is open.
+void App::onButton(int b) {
+  lastInput_ = ms_;
+  if (!screenOn_) { wake(); return; }
+  dirty_ = true;
+  if (scr_ == Scr::BOOT) { scr_ = set_.hasPet ? Scr::MAIN : Scr::TRAY; return; }
+  if (scr_ == Scr::TRAY && ov_ == Ov::NONE) { trayPick_ = (trayPick_ + (b ? 1 : 3)) % 4; trayScroll_ = 0; return; }
+  if (scr_ == Scr::NAME) { if (b) nameIdx_ = (nameIdx_ + 1) % 6; return; }
+  if (scr_ == Scr::GAME) return;
+  if (ov_ == Ov::PANTS || ov_ == Ov::CONFIRM_RESET) { ov_ = Ov::NONE; return; }
+  if (ov_ == Ov::RESULT && ms_ - ovSince_ > 400) { ov_ = Ov::NONE; return; }
+  if (ov_ == Ov::REVEAL && ms_ - revealStart_ > 3000) { ov_ = Ov::NONE; return; }
+  if (ov_ != Ov::NONE) return;
+  int t = (int)tab_ + (b ? 1 : -1);
+  tab_ = (Tab)((t + 4) % 4);
 }
 
 // ---------------------------------------------------------------------------

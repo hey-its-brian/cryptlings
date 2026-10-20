@@ -9,14 +9,20 @@ Semi-transparent edges (anti-aliasing, soft shadows, the blurry form) keep
 their alpha through the palette, so they blend on the device.
 
 Usage: node tools/art/render.js && python3 tools/bake_sprites.py
+       node tools/art/render.js --round && python3 tools/bake_sprites.py --round
+The round (StopWatch) build bakes 200 px creatures, 466 px scenes and 28 px
+icons into src/assets/art_round.h. Its big scenes are dithered (Floyd-Steinberg)
+so the 16-color skies do not band.
 """
 import os
+import sys
 from PIL import Image
 
+ROUND = "--round" in sys.argv
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, "tools", "art", "out")
-OUT = os.path.join(ROOT, "src", "assets", "art.h")
-SHEET = os.path.join(ROOT, "tools", "art", "contact_sheet.png")
+SRC = os.path.join(ROOT, "tools", "art", "out_round" if ROUND else "out")
+OUT = os.path.join(ROOT, "src", "assets", "art_round.h" if ROUND else "art.h")
+SHEET = os.path.join(ROOT, "tools", "art", "contact_sheet_round.png" if ROUND else "contact_sheet.png")
 
 SPECIES = ["mothman", "bigfoot", "nessie", "nightcrawler"]
 FORMS = ["egg", "whisper", "rumor", "sighting", "legend", "blurry", "hoax"]
@@ -25,6 +31,26 @@ MOODS = ["happy", "neutral", "sad", "sleep", "blink"]
 TODS = ["dusk", "night", "dawn", "day"]
 ICONS = ["belly", "cheer", "rest", "myst", "tidy", "play", "lights", "case", "loch", "walk",
          "pants", "lamp", "forage", "treat"]
+
+
+def quantize_opaque_dither(img):
+    """An opaque picture (a round scene): 16 colors, error-diffused."""
+    rgb = img.convert("RGB")
+    q = rgb.quantize(colors=16, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.FLOYDSTEINBERG)
+    pal = q.getpalette()[: 16 * 3]
+    pal += [0] * (48 - len(pal))
+    entries = [(pal[i * 3], pal[i * 3 + 1], pal[i * 3 + 2], 255) for i in range(16)]
+    idx = list(q.tobytes())
+    w, h = q.size
+    pal32 = [(a << 24) | (r << 16) | (g << 8) | b for (r, g, b, a) in entries]
+    rb = (w + 1) // 2
+    data = bytearray()
+    for y in range(h):
+        for xb in range(rb):
+            a = idx[y * w + xb * 2]
+            b = idx[y * w + xb * 2 + 1] if xb * 2 + 1 < w else 0
+            data.append((a << 4) | b)
+    return {"w": w, "h": h, "ox": 0, "oy": 0, "pal": pal32, "data": data, "idx": idx, "entries": entries}
 
 
 def quantize(img, crop=True):
@@ -94,8 +120,8 @@ def emit_sprite(L, name, s):
     L.append(f"static const uint32_t {name}_pal[16] = {{" + ",".join(f"0x{v:08X}" for v in s["pal"]) + "};")
     L.append(f"static const uint8_t {name}_idx[] = {{")
     d = s["data"]
-    for i in range(0, len(d), 32):
-        L.append("  " + ",".join(str(b) for b in d[i:i + 32]) + ",")
+    for i in range(0, len(d), 48):
+        L.append("  " + ",".join(str(b) for b in d[i:i + 48]) + ",")
     L.append("};")
     L.append(f"static const Sprite {name} = {{ {s['w']}, {s['h']}, {s['ox']}, {s['oy']}, {name}_pal, {name}_idx }};")
     return len(d) + 64
@@ -124,7 +150,8 @@ def main():
     # scenes
     for sp in SPECIES:
         for tod in TODS:
-            s = quantize(Image.open(os.path.join(SRC, f"scene_{sp}_{tod}.png")), crop=False)
+            img = Image.open(os.path.join(SRC, f"scene_{sp}_{tod}.png"))
+            s = quantize_opaque_dither(img) if ROUND else quantize(img, crop=False)
             total += emit_sprite(L, f"scene_{sp}_{tod}", s)
     L.append("// [species][tod] tod: dusk night dawn day")
     L.append("static const Sprite* const SCENE[4][4] = {")
@@ -132,7 +159,7 @@ def main():
         L.append("  {" + ",".join(f"&scene_{sp}_{t}" for t in TODS) + "},")
     L.append("};")
     L.append("")
-    # icons (keep the 16 x 16 box: crop=False so they align)
+    # icons (keep the square box: crop=False so they align)
     for ic in ICONS:
         s = quantize(Image.open(os.path.join(SRC, f"icon_{ic}.png")), crop=False)
         total += emit_sprite(L, f"icon_{ic}", s)
@@ -141,12 +168,13 @@ def main():
         fh.write("\n".join(L) + "\n")
     print(f"wrote {OUT}: about {total // 1024} KB of art")
     # A quick look at night/neutral and sleep for review.
-    prev = Image.new("RGBA", (6 * 2 * 104, 4 * 104), (11, 13, 18, 255))
+    C = 204 if ROUND else 104
+    prev = Image.new("RGBA", (6 * 2 * C, 4 * C), (11, 13, 18, 255))
     for si, sp in enumerate(SPECIES):
         for fi, form in enumerate(REAL_FORMS):
             for k, mood in enumerate(["neutral", "sleep"]):
                 s = quantize(Image.open(os.path.join(SRC, f"spr_{sp}_{form}_{mood}.png")))
-                prev.alpha_composite(preview(s), ((fi * 2 + k) * 104 + s["ox"], si * 104 + s["oy"]))
+                prev.alpha_composite(preview(s), ((fi * 2 + k) * C + s["ox"], si * C + s["oy"]))
     prev.save(SHEET)
     print(f"contact sheet: {SHEET}")
 

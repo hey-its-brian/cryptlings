@@ -10,6 +10,16 @@
 
 struct TouchIn { bool down; int x, y; };
 
+// What a touch lands on. Each screen layout answers this in its own drawing
+// file (app_draw.cpp, app_draw_round.cpp), so the flow code in app.cpp never
+// needs coordinates. idx is the tab, row, pants or clock-step number.
+enum HitId : uint8_t {
+  HIT_NONE = 0, HIT_ANY, HIT_TAB, HIT_PET, HIT_BEST, HIT_CARE, HIT_ROW, HIT_PREV, HIT_NEXT,
+  HIT_ANOTHER, HIT_USE, HIT_HIDE, HIT_PANTS, HIT_CANCEL, HIT_CLOCK, HIT_DONE,
+  HIT_HOLD_DIG, HIT_HOLD_RESET, HIT_HOLD_INCUBATE, HIT_HOLD_RELEASE, HIT_TRAY_TEXT, HIT_QUIT
+};
+struct Hit { uint8_t id; int8_t idx; };
+
 class App {
  public:
   App(Platform& p, gfx::Canvas& c) : P(p), cv(c) {}
@@ -25,6 +35,8 @@ class App {
   void setPowerHold(float p);        // 0 = hidden, 0..1 = "keep holding to power off"
   void renderPowerOff();             // save, then draw the powered-off card
   void render();                     // draws the current frame into the canvas
+  Hit hitAt(int x, int y) const;     // what is under (x, y) right now (also used by the simulator)
+  void onButton(int b);              // StopWatch side keys: 0 = A (previous tab), 1 = B (next tab)
 
   // For the serial console and tests.
   cryptlings::Pet& pet() { return pet_; }
@@ -36,6 +48,7 @@ class App {
   enum class Tab : uint8_t { DEN, CARE, FILE, MORE };
   enum class Ov : uint8_t { NONE, REVEAL, HIKER, BURROW, FAREWELL, PANTS, CLOCK, RESULT, CONFIRM_RESET };
   enum class Game : uint8_t { WALTZ, FORAGE, HOP, STROLL };
+  static const uint32_t GAME_MS = 20000;   // every minigame lasts 20 s
 
   // ---- core ----
   Platform& P;
@@ -83,6 +96,13 @@ class App {
   char farewell_[160] = {0};
   int contentH_[4] = {0, 0, 0, 0};
 
+  // ---- motion ----
+  bool hasMotion_ = false;
+  float acc_[3] = {0, 0, 1};
+  float accAvg_ = 1.0f;
+  bool stepHigh_ = false;
+  uint32_t lastStepMs_ = 0, faceDownMs_ = 0, lastUpdateMs_ = 0, faceUpMs_ = 0;
+
   // ---- minigame ----
   struct GameState {
     Game type = Game::WALTZ;
@@ -92,6 +112,7 @@ class App {
     float px = 86, py = 160, inRingMs = 0, totalMs = 0, dizzy = 0;
     struct Obj { int16_t x, y; uint8_t kind, alive; uint32_t born; } obj[8];
     bool done = false, great = false, walk = false, wasDown = false;
+    int realSteps = 0;               // steps counted by the motion sensor (walks)
     uint32_t lastMs = 0, rng = 1;
   } g_;
 
@@ -119,6 +140,7 @@ class App {
   const char* hintLine(char* buf, int n);
   int  bestAction() const;
   void playMotif(int id, bool chime);
+  void motionTick(uint32_t dt);      // face down, real steps, tilt (when there is a sensor)
 
   // ---- drawing ----
   void drawStatus();

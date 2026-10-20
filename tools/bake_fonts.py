@@ -9,14 +9,19 @@ position on the baseline and its advance width.
 Fonts are SIL Open Font License (Courier Prime, Grenze, Grenze Gotisch,
 Patrick Hand); the TTFs live in tools/fonts/.
 
-Usage: python3 tools/bake_fonts.py   (from the repo root)
+Usage: python3 tools/bake_fonts.py           rectangle build (src/assets/fonts.h)
+       python3 tools/bake_fonts.py --round   round StopWatch build (src/assets/fonts_round.h)
+The round build keeps the same font names (the code maps them to roles in
+src/app/fonts.cpp) at larger sizes.
 """
 import os
+import sys
 from PIL import Image, ImageDraw, ImageFont
 
+ROUND = "--round" in sys.argv
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONTS = os.path.join(ROOT, "tools", "fonts")
-OUT = os.path.join(ROOT, "src", "assets", "fonts.h")
+OUT = os.path.join(ROOT, "src", "assets", "fonts_round.h" if ROUND else "fonts.h")
 
 # name, ttf, pixel size  (sizes follow Brief A3, 12px floor)
 SPECS = [
@@ -27,6 +32,17 @@ SPECS = [
     ("font_hand16",  "PatrickHand-Regular.ttf", 16),   # polaroid captions, notes
     ("font_title24", "GrenzeGotisch-Bold.ttf", 24),    # screen titles, stage stamp
     ("font_title32", "GrenzeGotisch-Bold.ttf", 32),    # splash
+]
+# Round panel: about the same pixel density, but a much bigger screen held a
+# little further away, so roughly 1.5x.
+SPECS_ROUND = [
+    ("font_body12b", "CourierPrime-Bold.ttf", 18),
+    ("font_body14",  "CourierPrime-Regular.ttf", 20),
+    ("font_body14b", "CourierPrime-Bold.ttf", 20),
+    ("font_head16",  "Grenze-SemiBold.ttf", 24),
+    ("font_hand16",  "PatrickHand-Regular.ttf", 26),
+    ("font_title24", "GrenzeGotisch-Bold.ttf", 36),
+    ("font_title32", "GrenzeGotisch-Bold.ttf", 48),
 ]
 FIRST, LAST = 0x20, 0x7E
 
@@ -91,4 +107,4 @@ def emit(fonts):
 
 
 if __name__ == "__main__":
-    emit([bake(*s) for s in SPECS])
+    emit([bake(*s) for s in (SPECS_ROUND if ROUND else SPECS)])

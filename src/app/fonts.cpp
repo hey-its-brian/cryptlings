@@ -1,11 +1,15 @@
-// The one translation unit that owns the baked font and art data.
+// The one translation unit that owns the baked font data.
 #include "theme.h"
+#if CRYPT_ROUND
+#include "../assets/fonts_round.h"
+#else
 #include "../assets/fonts.h"
+#endif
 
-const Font& F12B = font_body12b;
-const Font& F14  = font_body14;
-const Font& F14B = font_body14b;
-const Font& F16H = font_head16;
-const Font& F16P = font_hand16;
-const Font& F24  = font_title24;
-const Font& F32  = font_title32;
+const Font& FLabel  = font_body12b;
+const Font& FBody   = font_body14;
+const Font& FBodyB  = font_body14b;
+const Font& FHead   = font_head16;
+const Font& FHand   = font_hand16;
+const Font& FTitle  = font_title24;
+const Font& FSplash = font_title32;

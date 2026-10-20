@@ -3,3 +3,7 @@ build/
 .vscode/
 tools/art/out/
 .DS_Store
+tools/art/out_round/
+# written by the pioarduino build
+src/idf_component.yml
+src/idf_component.yml.orig

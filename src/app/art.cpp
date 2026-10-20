@@ -1,6 +1,10 @@
 // Accessors for the baked art (assets/art.h is included only here).
 #include "art.h"
+#if CRYPT_ROUND
+#include "../assets/art_round.h"
+#else
 #include "../assets/art.h"
+#endif
 
 const Sprite* creatureSprite(int species, int form, int mood) {
   if (species < 0 || species > 3) species = 0;

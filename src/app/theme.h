@@ -29,11 +29,12 @@ static const gfx::Color pink      = hex(0xE58FA0);
 static const gfx::Color firefly   = hex(0xE8F08A);
 }  // namespace th
 
-// Fonts are defined in assets/fonts.h (included once, in fonts.cpp).
-extern const Font& F12B;   // Courier Prime Bold 12
-extern const Font& F14;    // Courier Prime 14
-extern const Font& F14B;   // Courier Prime Bold 14
-extern const Font& F16H;   // Grenze SemiBold 16
-extern const Font& F16P;   // Patrick Hand 16
-extern const Font& F24;    // Grenze Gotisch 24
-extern const Font& F32;    // Grenze Gotisch 32
+// Font roles. Baked per screen (assets/fonts.h or fonts_round.h, included only
+// in fonts.cpp). Sizes are for the rectangle build / the round build.
+extern const Font& FLabel;    // Courier Prime Bold 12 / 18: status, small labels, stamps
+extern const Font& FBody;     // Courier Prime 14 / 20: body copy
+extern const Font& FBodyB;    // Courier Prime Bold 14 / 20: buttons, row titles
+extern const Font& FHead;     // Grenze SemiBold 16 / 24: headers, tabs, species names
+extern const Font& FHand;     // Patrick Hand 16 / 26: polaroid captions, notes
+extern const Font& FTitle;    // Grenze Gotisch 24 / 36: screen titles
+extern const Font& FSplash;   // Grenze Gotisch 32 / 48: splash

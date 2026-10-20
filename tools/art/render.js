@@ -1,13 +1,18 @@
 // Renders the vector art (tools/art/sprites.js, scenes, icons) to PNGs with
 // headless Chromium, for tools/bake_sprites.py to quantize into C arrays.
-// Usage: node tools/art/render.js   (needs `npm i playwright` somewhere on NODE_PATH)
+// Usage: node tools/art/render.js          rectangle build (tools/art/out)
+//        node tools/art/render.js --round  round StopWatch build (tools/art/out_round)
+// (needs `npm i playwright` somewhere on NODE_PATH)
 const path = require('path');
 const fs = require('fs');
 const { chromium } = require('playwright');
 
+const ROUND = process.argv.includes('--round');
 const ROOT = path.resolve(__dirname, '..', '..');
-const OUT = path.join(__dirname, 'out');
+const OUT = path.join(__dirname, ROUND ? 'out_round' : 'out');
 fs.mkdirSync(OUT, { recursive: true });
+// Pixel sizes: creature box, scene, icon.
+const SZ = ROUND ? { spr: 200, icon: 28 } : { spr: 100, icon: 16 };
 
 const SPECIES = ['mothman', 'bigfoot', 'nessie', 'nightcrawler'];
 const FORMS = ['egg', 'whisper', 'rumor', 'sighting', 'legend', 'blurry'];
@@ -36,6 +41,51 @@ function scene(sp, tod) {
   if (sp === 'nessie') prop = `<rect x="0" y="104" width="144" height="24" fill="#1b3a40"/><path d="M0 106 Q10 103 20 106 T40 106 T60 106 T80 106 T100 106 T120 106 T140 106 T160 106" stroke="#4FA3A5" stroke-width="1" fill="none" opacity=".7"/><path d="M0 92 L30 80 L60 90 L95 76 L120 88 L144 80 L144 104 L0 104Z" fill="#141c22"/>`;
   if (sp === 'nightcrawler') prop = `<rect x="0" y="100" width="144" height="28" fill="#1d211f"/><path d="M0 100 H144" stroke="#3a403a" stroke-width="1"/><rect x="126" y="40" width="4" height="60" fill="#2a2a2e"/><rect x="120" y="36" width="16" height="7" fill="#3a3a40"/>${tod === 'night' ? '<circle cx="128" cy="39" r="14" fill="#ffffff" opacity=".06"/>' : ''}`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="128" viewBox="0 0 144 128"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${a}"/><stop offset=".65" stop-color="${b}"/><stop offset="1" stop-color="${c}"/></linearGradient></defs><rect width="144" height="128" fill="url(#g)"/>${stars}<path d="M0 106 Q36 98 72 104 T144 100 V128 H0Z" fill="${t.ground}"/>${prop}</svg>`;
+}
+
+// The round build's scene fills the whole 466 px circle. The horizon sits
+// near y 280 so the creature (drawn 200 px tall, feet near y 280) stands on
+// it, and the darker ground below carries the name, needs and the button.
+function sceneRound(sp, tod) {
+  const t = TOD[tod];
+  const [a, b, c] = t.sky;
+  const S = 466;
+  let stars = '';
+  if (tod === 'night' || tod === 'dusk')
+    for (let i = 0; i < 46; i++) {
+      const x = (i * 97 + 31) % S, y = 40 + (i * 53 + 17) % 200;
+      stars += `<circle cx="${x}" cy="${y}" r="${i % 3 ? 1.3 : 2}" fill="#F2E6B8" opacity="${0.3 + ((i * 7) % 5) / 10}"/>`;
+    }
+  const ground = `<path d="M0 290 Q116 272 233 282 T466 276 V466 H0Z" fill="${t.ground}"/>` +
+    `<path d="M0 340 Q140 326 260 336 T466 330 V466 H0Z" fill="#000000" opacity=".22"/>`;
+  let back = '', front = '';
+  if (sp === 'mothman') {
+    back = `<path d="M0 282 Q60 240 120 252 T240 240 T360 248 T466 230 V290 H0Z" fill="#141a1c" opacity=".7"/>`;
+    front = `<rect x="356" y="150" width="9" height="140" fill="#2a2620"/>` +
+      `<rect x="338" y="122" width="44" height="34" rx="5" fill="#3a3122"/>` +
+      (t.lit ? `<circle cx="360" cy="140" r="70" fill="#F5A642" opacity=".10"/><circle cx="360" cy="140" r="38" fill="#F5A642" opacity=".14"/>` : '') +
+      `<rect x="344" y="127" width="32" height="24" rx="3" fill="${t.lit ? '#F5D08A' : '#8a8070'}"/>`;
+  }
+  if (sp === 'bigfoot') {
+    const tree = (x, top, w, col) => `<path d="M${x - w} 290 L${x} ${top} L${x + w} 290Z" fill="${col}"/>` +
+      `<path d="M${x - w * 0.7} ${top + (290 - top) * 0.55} L${x} ${top - 20} L${x + w * 0.7} ${top + (290 - top) * 0.55}Z" fill="${col}"/>`;
+    back = tree(150, 150, 34, '#1a2620') + tree(320, 160, 30, '#1a2620');
+    front = tree(64, 92, 52, '#16201a') + tree(402, 100, 52, '#16201a') + tree(18, 170, 34, '#1c2a20') + tree(452, 176, 34, '#1c2a20');
+  }
+  if (sp === 'nessie') {
+    back = `<path d="M0 236 L80 196 L170 226 L280 182 L360 220 L466 194 L466 272 L0 272Z" fill="#141c22"/>`;
+    front = `<rect x="0" y="268" width="466" height="198" fill="#1b3a40"/>` +
+      `<path d="M0 272 Q24 265 48 272 T96 272 T144 272 T192 272 T240 272 T288 272 T336 272 T384 272 T432 272 T480 272" stroke="#4FA3A5" stroke-width="2" fill="none" opacity=".7"/>` +
+      `<path d="M30 340 Q60 334 90 340 M300 360 Q330 354 360 360 M150 400 Q180 394 210 400" stroke="#4FA3A5" stroke-width="2" fill="none" opacity=".35"/>`;
+  }
+  if (sp === 'nightcrawler') {
+    back = `<rect x="40" y="190" width="70" height="96" fill="#161a22"/><rect x="360" y="204" width="60" height="82" fill="#161a22"/>` +
+      `<rect x="58" y="212" width="12" height="14" fill="${tod === 'night' ? '#F5D08A' : '#2a3040'}" opacity=".7"/>`;
+    front = `<rect x="0" y="282" width="466" height="184" fill="#1d211f"/><path d="M0 282 H466" stroke="#3a403a" stroke-width="2"/>` +
+      `<rect x="372" y="120" width="10" height="162" fill="#2a2a2e"/><rect x="356" y="110" width="42" height="16" fill="#3a3a40"/>` +
+      (tod === 'night' ? '<path d="M362 126 L330 282 H426 L392 126Z" fill="#ffffff" opacity=".05"/><circle cx="377" cy="120" r="34" fill="#ffffff" opacity=".07"/>' : '');
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${a}"/><stop offset=".55" stop-color="${b}"/><stop offset=".64" stop-color="${c}"/><stop offset="1" stop-color="${c}"/></linearGradient></defs><rect width="${S}" height="${S}" fill="url(#g)"/>${stars}${back}${ground}${front}</svg>`;
 }
 
 const ICONS = {
@@ -80,14 +130,17 @@ const ICONS = {
       for (let m = 0; m < MOODS.length; m++) {
         const inner = await page.evaluate(({ sp, form, mood, blink }) =>
           window.CRYPTID_SPRITES[sp][form]({ mood, blink, t: 0 }), { sp, form, mood: MOODS[m][0], blink: MOODS[m][1] });
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">${inner}</svg>`;
-        save(`spr_${sp}_${form}_${MOOD_NAMES[m]}`, await raster(svg, 100, 100));
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${SZ.spr}" height="${SZ.spr}" viewBox="0 0 100 100">${inner}</svg>`;
+        save(`spr_${sp}_${form}_${MOOD_NAMES[m]}`, await raster(svg, SZ.spr, SZ.spr));
         n++;
       }
   for (const sp of SPECIES)
-    for (const tod of Object.keys(TOD)) { save(`scene_${sp}_${tod}`, await raster(scene(sp, tod), 144, 128)); n++; }
+    for (const tod of Object.keys(TOD)) {
+      save(`scene_${sp}_${tod}`, ROUND ? await raster(sceneRound(sp, tod), 466, 466) : await raster(scene(sp, tod), 144, 128));
+      n++;
+    }
   for (const [k, body] of Object.entries(ICONS)) {
-    save(`icon_${k}`, await raster(`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 12 12">${body}</svg>`, 16, 16));
+    save(`icon_${k}`, await raster(`<svg xmlns="http://www.w3.org/2000/svg" width="${SZ.icon}" height="${SZ.icon}" viewBox="0 0 12 12">${body}</svg>`, SZ.icon, SZ.icon));
     n++;
   }
   console.log(`rendered ${n} images to ${OUT}`);

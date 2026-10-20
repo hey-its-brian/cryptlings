@@ -1,14 +1,22 @@
-// Tiny software renderer for a 172 x 320 RGB565 framebuffer.
+// Tiny software renderer for an RGB565 framebuffer (172 x 320, or 466 x 466 on
+// the round StopWatch build, see target.h).
 // Portable (no Arduino): the board pushes the buffer over SPI, the host
 // simulator writes it to an image. Pixels are native-endian RGB565.
 #pragma once
 #include <cstdint>
 #include <cstddef>
 
+#include "target.h"
+
 namespace gfx {
 
+#if CRYPT_ROUND
+static const int W = 466;
+static const int H = 466;
+#else
 static const int W = 172;
 static const int H = 320;
+#endif
 
 typedef uint16_t Color;
 
@@ -38,8 +46,8 @@ struct Font {
 
 // A 4bpp indexed sprite with an RGBA palette (index alpha 0 = transparent) ---
 struct Sprite {
-  uint8_t w, h;          // cropped size
-  uint8_t ox, oy;        // offset of the crop inside the original art box
+  uint16_t w, h;         // cropped size
+  uint16_t ox, oy;       // offset of the crop inside the original art box
   const uint32_t* pal;   // 16 x 0xAARRGGBB
   const uint8_t* idx;    // w*h/2 bytes, high nibble first, rows padded to bytes
 };

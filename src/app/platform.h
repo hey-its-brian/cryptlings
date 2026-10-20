@@ -26,11 +26,18 @@ class Platform {
   virtual ~Platform() {}
   virtual uint32_t unixNow() = 0;            // UTC seconds
   virtual int32_t  utcOffset(uint32_t now) = 0;
-  virtual bool     clockVerified() = 0;      // NTP answered this boot
+  virtual bool     clockVerified() = 0;      // NTP answered this boot, or a trusted RTC
   virtual void     setClock(uint32_t unix) = 0;
   virtual void     play(const Note* notes, int n) = 0;   // non-blocking
   virtual void     backlight(uint8_t level) = 0;         // 0 off .. 255
   virtual int      batteryPercent() = 0;                 // -1 unknown
   virtual void     savePet(const uint8_t* data, size_t len) = 0;
   virtual void     saveSettings(const Settings& s) = 0;
+
+  // Optional hardware (the StopWatch has both; the C6 build uses the defaults).
+  virtual void     vibrate(uint16_t ms) { (void)ms; }
+  // Accelerometer in g, in screen terms: x to the right, y down the screen,
+  // z out of the glass toward the viewer (lying face up reads about z = +1).
+  // Return false when there is no motion sensor.
+  virtual bool     accel(float& x, float& y, float& z) { (void)x; (void)y; (void)z; return false; }
 };
