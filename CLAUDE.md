@@ -53,7 +53,7 @@ platformio.ini              env esp32-c6 (default) and env stopwatch, both on pi
 - Firmware: C6 `pio run -e esp32-c6 -t upload && pio device monitor`; StopWatch `pio run -e stopwatch -t upload`. For NTP add to build_flags: `-DWIFI_SSID=\"name\" -DWIFI_PASS=\"pass\"`. Time zone defaults to America/New_York (`TZ_RULE`).
 - Everything is played on the touch screen. Serial console (debug only): `s` status, `w`/`W` fast-forward an hour/day, `S` save, `?` help; StopWatch also `a` (accelerometer in screen terms).
 
-## Status: v1.0.0 released, playable on the device (all phases through P6 core)
+## Status: v1.1.0 released (C6 verified on the device, StopWatch port awaiting its first flash)
 
 P1 engine: done, validated on host and on the board (serial console). Code review fixes applied, regression tests in host_test.
 
@@ -68,7 +68,7 @@ UI firmware (written 2026-10-19, builds with pioarduino 55.03.312 / Arduino core
 
 Flashed and played on the board 2026-10-19: display, touch, buzzer, battery and sleep all work. Public repo github.com/hey-its-brian/cryptlings, release v1.0.0 (full image for 0x0, app image for 0x10000, player's guide).
 
-StopWatch port (2026-10-20, not yet flashed; a fresh-eyes review found 10 issues, all fixed: key wake also changed the tab, RTC ignored because of the latched VBLF flag, PM1 IRQ line setup, face down needing a real flip, power off fallback, missed quick power taps, IMU no-new-sample dropouts, burrow label outside its hold target, speaker left powered): round layout for every screen, overlay and minigame (scene fills the circle, holds are rings, Nessie's loch and the game timer on the rim, one action button, tabs as pills in the sky), round art (200 px creatures, 466 px scenes with the horizon at y 280, dithered) and fonts (about 1.5x). Platform gained optional `vibrate()` and `accel()`; App gained `hitAt()` (semantic hit ids), `onButton()` (side keys) and `motionTick()` (face down 1.5 s = lights out, real steps during the walk, tilt in the Waltz). Builds: StopWatch flash 55% (3.6 MB, mostly art), RAM 7% (framebuffer in PSRAM); C6 unchanged (RAM 42%, flash 29%) and its sim screenshots stayed pixel-identical through the refactor.
+StopWatch port (2026-10-20, released as v1.1.0 with images for both boards, not yet flashed; a fresh-eyes review found 10 issues, all fixed: key wake also changed the tab, RTC ignored because of the latched VBLF flag, PM1 IRQ line setup, face down needing a real flip, power off fallback, missed quick power taps, IMU no-new-sample dropouts, burrow label outside its hold target, speaker left powered): round layout for every screen, overlay and minigame (scene fills the circle, holds are rings, Nessie's loch and the game timer on the rim, one action button, tabs as pills in the sky), round art (200 px creatures, 466 px scenes with the horizon at y 280, dithered) and fonts (about 1.5x). Platform gained optional `vibrate()` and `accel()`; App gained `hitAt()` (semantic hit ids), `onButton()` (side keys) and `motionTick()` (face down 1.5 s = lights out, real steps during the walk, tilt in the Waltz). Builds: StopWatch flash 55% (3.6 MB, mostly art), RAM 7% (framebuffer in PSRAM); C6 unchanged (RAM 42%, flash 29%) and its sim screenshots stayed pixel-identical through the refactor.
 
 Not done / next:
 - Frame rate: try `-DLCD_SPI_HZ=80000000` (Waveshare's IDF demo runs 80 MHz).
